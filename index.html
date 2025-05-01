@@ -192,6 +192,37 @@
       background-color: #dc3545;
     }
     
+    /* Login panel */
+    #login-container {
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      flex-direction: column;
+    }
+    
+    .loading-spinner {
+      width: 3rem;
+      height: 3rem;
+    }
+    
+    .user-info {
+      font-size: 0.9rem;
+      margin-left: auto;
+    }
+    
     @media (max-width: 576px) {
       .fc .fc-col-header-cell-cushion { 
         font-size: 0.85rem;
@@ -227,9 +258,40 @@
   </style>
 </head>
 <body>
+  <!-- Overlay di caricamento -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="spinner-border loading-spinner text-primary" role="status"></div>
+    <p class="mt-3">Caricamento in corso...</p>
+  </div>
 
-  <div class="container">
-    <h1>🐴 AC Ranch - Gestione Cavalli</h1>
+  <!-- Contenitore login (mostra all'avvio) -->
+  <div id="login-container" class="card shadow p-4">
+    <h2 class="text-center mb-4">🐴 AC Ranch</h2>
+    <p class="text-center mb-4">Accedi per gestire i cavalli</p>
+    
+    <div class="mb-3">
+      <label for="email" class="form-label">Email</label>
+      <input type="email" class="form-control" id="email" required>
+    </div>
+    <div class="mb-3">
+      <label for="password" class="form-label">Password</label>
+      <input type="password" class="form-control" id="password" required>
+    </div>
+    <div class="d-grid gap-2">
+      <button id="login-btn" class="btn btn-primary">Accedi</button>
+      <p id="login-error" class="text-danger mt-2 text-center"></p>
+    </div>
+  </div>
+
+  <!-- Contenitore principale app (nascosto all'avvio) -->
+  <div id="app-container" class="container d-none">
+    <div class="d-flex align-items-center justify-content-center mb-3">
+      <h1 class="mb-0">🐴 AC Ranch - Gestione Cavalli</h1>
+      <div class="user-info ms-2">
+        <span id="user-email" class="badge bg-secondary"></span>
+        <button id="logout-btn" class="btn btn-sm btn-outline-secondary ms-2">Esci</button>
+      </div>
+    </div>
     
     <!-- Pulsante Nuovo Evento -->
     <button id="new-event-button" class="btn btn-primary new-event-btn">
@@ -384,940 +446,1116 @@
   <!-- JS Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+  
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-auth-compat.js"></script>
 
   <script>
+  // IMPORTANTE: Sostituisci con le tue informazioni Firebase
+  const firebaseConfig = {
+    apiKey: "AIzaSyBKCIQXvqVrLQdVaXIZpEAAQMUmcRc-wJE",
+    authDomain: "ac-ranch-gestione-cavalli.firebaseapp.com",
+    databaseURL: "https://ac-ranch-gestione-cavalli-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "ac-ranch-gestione-cavalli",
+    storageBucket: "ac-ranch-gestione-cavalli.firebasestorage.app",
+    messagingSenderId: "348337156367",
+    appId: "1:348337156367:web:0b27229e0a7264465e4e7a"
+  };
+  
+  // Inizializza Firebase
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const database = firebase.database();
+  
   document.addEventListener('DOMContentLoaded', () => {
-    // Dati iniziali
-    let cavalli = JSON.parse(localStorage.getItem('ranchHorses')) ||
-      ["Angel","Celine","Dior","John","Nina","Pioggia","Revoltoso","Wapi","Zia"];
-    let cavalliNotes = JSON.parse(localStorage.getItem('ranchHorseNotes')) || {};
-    // Nuovo oggetto per tenere traccia delle note da gestire
-    let noteDaGestire = JSON.parse(localStorage.getItem('ranchNotesToManage')) || {};
-    // Nuovo oggetto per tenere traccia della disponibilità
-    let cavalliDisponibilita = JSON.parse(localStorage.getItem('ranchHorseAvailability')) || {};
+    // Elementi UI per il login
+    const loginContainer = document.getElementById('login-container');
+    const appContainer = document.getElementById('app-container');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    const loginError = document.getElementById('login-error');
+    const userEmailElement = document.getElementById('user-email');
     
-    const activities     = ["passeggiata","lezione","ferratura","altro"];
-    const workActivities = ["passeggiata","lezione"];
-    const activityColors = {
-      "passeggiata":"#198754","lezione":"#0d6efd",
-      "ferratura":"#dc3545","altro":"#6c757d"
-    };
-    const todayFormatted = new Date().toISOString().slice(0,10);
-
-    // Riferimenti UI
-    const calendarEl         = document.getElementById('calendar');
-    const dateInput          = document.getElementById('summary-date');
-    const hoursEl            = document.getElementById('hours');
-    const dailyListEl        = document.getElementById('daily-events');
-    const weeklyHoursEl      = document.getElementById('weekly-hours');
-    const weeklyListEl       = document.getElementById('weekly-events');
-    const weekRangeEl        = document.getElementById('week-range');
-    const profilesList       = document.getElementById('profiles-list');
-    const notesDashboard     = document.getElementById('notes-dashboard');
-    const newHorseInput      = document.getElementById('new-horse-name');
-    const addHorseBtn        = document.getElementById('add-horse-btn');
-    const newEventBtn        = document.getElementById('new-event-button');
-    const horseNotesEl       = document.getElementById('horse-notes');
-    const saveHorseNotesBtn  = document.getElementById('save-horse-notes');
-    const confirmDeleteHorseBtn = document.getElementById('confirm-delete-horse');
-    const deleteHorseBtn     = document.getElementById('delete-horse-btn');
-    const unavailableHorsesWarning = document.getElementById('unavailable-horses-warning');
-    const toggleAvailabilityBtn = document.getElementById('toggle-availability');
-    const eventModal    = new bootstrap.Modal(document.getElementById('eventModal'));
-    const profileModal  = new bootstrap.Modal(document.getElementById('profileModal'));
-    const deleteHorseModal = new bootstrap.Modal(document.getElementById('deleteHorseModal'));
-    const form          = document.getElementById('event-form');
-    const selectEl      = document.getElementById('horses-select');
-    const typeEl        = document.getElementById('activity-type');
-    const startEl       = document.getElementById('start-time');
-    const endEl         = document.getElementById('end-time');
-    const notesEl       = document.getElementById('event-notes');
-    const deleteBtn     = document.getElementById('delete-event');
-    const saveBtn       = document.getElementById('save-event');
-    const modalTitle    = document.getElementById('modal-title');
-    const profileTitle  = document.getElementById('profile-title');
-    const profileEvents = document.getElementById('profile-events');
-
-    let editingEvent = null, currentHorse = null;
-    let touchStartTime = 0;
-    let touchStartY = 0;
-    let moved = false;
-
-    // Inizializzare la disponibilità per i cavalli che non ne hanno
-    cavalli.forEach(h => {
-      if (cavalliDisponibilita[h] === undefined) {
-        cavalliDisponibilita[h] = true; // true = disponibile
-      }
-    });
-    saveHorseAvailability();
-
-    // LocalStorage helpers
-    function saveHorses() {
-      localStorage.setItem('ranchHorses', JSON.stringify(cavalli));
-      renderHorsesUI();
-    }
-    function saveHorseNotes() {
-      localStorage.setItem('ranchHorseNotes', JSON.stringify(cavalliNotes));
-    }
-    function saveNotesToManage() {
-      localStorage.setItem('ranchNotesToManage', JSON.stringify(noteDaGestire));
-    }
-    function saveHorseAvailability() {
-      localStorage.setItem('ranchHorseAvailability', JSON.stringify(cavalliDisponibilita));
-    }
-    function saveEvents() {
-      const arr = calendar.getEvents().map(e=>({
-        id: e.id,
-        title: e.title,
-        start: e.start.toISOString(),
-        end:   e.end.toISOString(),
-        extendedProps: e.extendedProps,
-        backgroundColor: e.backgroundColor
-      }));
-      localStorage.setItem('ranchEvents', JSON.stringify(arr));
-    }
-    function loadEvents() {
-      JSON.parse(localStorage.getItem('ranchEvents')||'[]')
-        .forEach(ev=>calendar.addEvent(ev));
-    }
-
-    // Gestione colori basati sul numero di ore
-    function getHoursColorClass(hours, isDaily = true, isTotal = false) {
-      // Se è un totale, ritorna sempre classe per totale (blu)
-      if (isTotal) {
-        return 'total-hours';
-      }
-      
-      if (isDaily) {
-        // Logica per le ore giornaliere
-        if (hours <= 3) return 'hours-low';
-        if (hours <= 5) return 'hours-medium';
-        return 'hours-high';
+    // Abilita/disabilita loading overlay
+    function setLoading(isLoading) {
+      if (isLoading) {
+        loadingOverlay.classList.remove('d-none');
       } else {
-        // Logica per le ore settimanali
-        if (hours <= 18) return 'hours-low';
-        if (hours <= 30) return 'hours-medium';
-        return 'hours-high';
+        loadingOverlay.classList.add('d-none');
       }
-    }
-
-    // FullCalendar init
-    const calendar = new FullCalendar.Calendar(calendarEl, {
-      initialView: 'timeGridWeek',
-      firstDay: 1,
-      slotMinTime: "00:00",
-      slotMaxTime: "24:00",
-      slotDuration: '01:00:00',
-      defaultTimedEventDuration: '01:00:00',
-      selectable: true,
-      selectMinDistance: 5, // Ridotta per facilitare il tap
-      selectLongPressDelay: 150, // Ridotto per rendere più reattivo il tap
-      editable: true,
-      nowIndicator: true,
-      locale: 'it',
-      timeZone: 'local',
-      height: 'auto', // Altezza automatica per adattarsi meglio ai dispositivi
-      headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay'
-      },
-      buttonText: {
-        today: 'Oggi',
-        month: 'Mese',
-        week: 'Sett.',
-        day: 'Giorno'
-      },
-      allDaySlot: false, // Rimuove la riga all-day
-      // Modificato: Configurazioni specifiche per la vista mensile
-      views: {
-        dayGridMonth: {
-          // Aumenta l'altezza della vista mensile e imposta la visualizzazione degli eventi
-          dayMaxEventRows: 3, // Massimo 3 eventi visibili per cella
-        }
-      },
-      select: info => {
-        calendar.unselect();
-        // Otteniamo l'ora esatta cliccata e correggiamo eventuali problemi di fuso orario
-        const s = new Date(info.startStr);
-        // Calcoliamo la fine esattamente un'ora dopo
-        const e = new Date(s.getTime() + 3600000);
-        openForm(null, s, e);
-      },
-      eventClick: info => openForm(info.event, info.event.start, info.event.end),
-      eventDrop: ()=>{ saveEvents(); updateAll(); },
-      eventResize: ()=>{ saveEvents(); updateAll(); },
-      eventDidMount: info => {
-        if (info.event.extendedProps.notes) {
-          new bootstrap.Tooltip(info.el, {
-            title: info.event.extendedProps.notes,
-            placement: 'top',
-            trigger: 'hover',
-            container: 'body'
-          });
-        }
-      }
-    });
-    calendar.render();
-    loadEvents();
-
-    // Migliorare l'interazione touch sul calendario
-    calendarEl.addEventListener('touchstart', function(e) {
-      touchStartTime = Date.now();
-      touchStartY = e.touches[0].clientY;
-      moved = false;
-    }, { passive: true });
-
-    calendarEl.addEventListener('touchmove', function(e) {
-      const yDiff = Math.abs(e.touches[0].clientY - touchStartY);
-      if (yDiff > 5) { // Ridotta la soglia per migliorare la reattività
-        moved = true;
-      }
-    }, { passive: true });
-
-    calendarEl.addEventListener('touchend', function(e) {
-      // Se il tocco è durato meno di 300ms e non ci sono stati movimenti significativi,
-      // consideriamolo come un tap per selezionare una cella
-      const touchDuration = Date.now() - touchStartTime;
-      if (touchDuration < 300 && !moved) {
-        // Non facciamo nulla qui, lasciamo che FullCalendar gestisca il tap
-      }
-    }, { passive: true });
-
-    // Pulsante nuovo evento
-    newEventBtn.addEventListener('click', function() {
-      const now = new Date();
-      // Arrotondiamo all'ora successiva
-      const nextHour = new Date(now);
-      nextHour.setHours(now.getHours() + 1);
-      nextHour.setMinutes(0);
-      nextHour.setSeconds(0);
-      nextHour.setMilliseconds(0);
-      
-      // Calcoliamo l'ora di fine (un'ora dopo l'inizio)
-      const endHour = new Date(nextHour.getTime() + 3600000);
-      
-      openForm(null, nextHour, endHour);
-    });
-
-    // Verifica cavalli indisponibili selezionati
-    function checkSelectedUnavailableHorses() {
-      const selectedHorses = Array.from(selectEl.selectedOptions).map(o => o.value);
-      const unavailableSelected = selectedHorses.some(h => !cavalliDisponibilita[h]);
-      const activityType = typeEl.value;
-      
-      // Mostra avviso se ci sono cavalli indisponibili selezionati
-      if (unavailableSelected && (activityType === 'passeggiata' || activityType === 'lezione')) {
-        unavailableHorsesWarning.classList.remove('d-none');
-        saveBtn.disabled = true;
-      } else {
-        unavailableHorsesWarning.classList.add('d-none');
-        saveBtn.disabled = false;
-      }
-    }
-
-    // Aggiunto: Event listener per il cambio di selezione cavalli
-    selectEl.addEventListener('change', checkSelectedUnavailableHorses);
-    
-    // Aggiunto: Event listener per il cambio di tipo attività
-    typeEl.addEventListener('change', checkSelectedUnavailableHorses);
-
-    // Render cavalli UI
-    function renderHorsesUI() {
-      // Aggiorna il dropdown dei cavalli nel form eventi
-      selectEl.innerHTML = '';
-      cavalli.forEach(h => {
-        const o = document.createElement('option');
-        o.value = h;
-        o.textContent = h;
-        
-        // Aggiungi indicatore di disponibilità al nome
-        if (!cavalliDisponibilita[h]) {
-          o.textContent = `${h} (Non disponibile)`;
-          o.classList.add('text-danger');
-        }
-        
-        selectEl.append(o);
-      });
-      
-      // Aggiorna la lista dei profili cavalli
-      profilesList.innerHTML = '';
-      cavalli.forEach(h => {
-        const btn = document.createElement('button');
-        // Imposta classe in base alla disponibilità
-        const disponibile = cavalliDisponibilita[h];
-        btn.className = `btn horse-btn ${disponibile ? 'available' : 'unavailable'}`;
-        btn.textContent = h;
-        btn.onclick = () => openProfile(h);
-        
-        // Aggiungi indicatore di disponibilità
-        const indicator = document.createElement('span');
-        indicator.className = `availability-indicator ${disponibile ? 'available' : 'unavailable'}`;
-        indicator.innerHTML = disponibile ? '&#10003;' : '&#10007;'; // Checkmark o X
-        btn.appendChild(indicator);
-        
-        profilesList.append(btn);
-      });
-      
-      renderNotesDashboard();
-    }
-    renderHorsesUI();
-
-    // Render bacheca note
-    function renderNotesDashboard() {
-      notesDashboard.innerHTML = '';
-      
-      let hasNotes = false;
-      
-      // Controlliamo sia le note dei cavalli che le note da gestire
-      for (const horseName of cavalli) {
-        const horseNote = cavalliNotes[horseName];
-        if (horseNote && horseNote.trim()) {
-          hasNotes = true;
-          
-          // Verifichiamo se questa nota è già marcata come "da gestire"
-          const needsManagement = noteDaGestire[horseName] === true;
-          
-          const noteCard = document.createElement('div');
-          noteCard.className = 'note-card' + (needsManagement ? ' border-danger' : '');
-          
-          const horseNameEl = document.createElement('div');
-          horseNameEl.className = 'horse-name';
-          horseNameEl.textContent = horseName;
-          
-          // Aggiungi indicatore di disponibilità
-          if (!cavalliDisponibilita[horseName]) {
-            const availabilitySpan = document.createElement('span');
-            availabilitySpan.className = 'badge bg-danger ms-2';
-            availabilitySpan.textContent = 'Non disponibile';
-            horseNameEl.appendChild(availabilitySpan);
-          }
-          
-          const noteContent = document.createElement('div');
-          noteContent.className = 'note-content';
-          noteContent.textContent = horseNote;
-          
-          const actions = document.createElement('div');
-          actions.className = 'note-actions';
-          
-          const viewBtn = document.createElement('button');
-          viewBtn.className = 'btn btn-sm btn-outline-primary';
-          viewBtn.textContent = 'Visualizza profilo';
-          viewBtn.onclick = () => openProfile(horseName);
-          
-          const manageBtn = document.createElement('button');
-          manageBtn.className = 'btn btn-sm ' + (needsManagement ? 'btn-success' : 'btn-outline-warning');
-          manageBtn.textContent = needsManagement ? 'Completata' : 'Segna come da gestire';
-          manageBtn.onclick = () => {
-            // Toggle lo stato "da gestire"
-            if (needsManagement) {
-              delete noteDaGestire[horseName];
-            } else {
-              noteDaGestire[horseName] = true;
-            }
-            saveNotesToManage();
-            renderNotesDashboard();
-          };
-          
-          const removeBtn = document.createElement('button');
-          removeBtn.className = 'btn btn-sm btn-outline-danger';
-          removeBtn.textContent = 'Rimuovi nota';
-          removeBtn.onclick = () => {
-            // Rimuove la nota sia dalla lista generale che da quelle da gestire
-            cavalliNotes[horseName] = '';
-            delete noteDaGestire[horseName];
-            saveHorseNotes();
-            saveNotesToManage();
-            renderNotesDashboard();
-          };
-          
-          actions.append(viewBtn, manageBtn, removeBtn);
-          noteCard.append(horseNameEl, noteContent, actions);
-          notesDashboard.append(noteCard);
-        }
-      }
-      
-      if (!hasNotes) {
-        const emptyMessage = document.createElement('div');
-        emptyMessage.className = 'alert alert-light';
-        emptyMessage.textContent = 'Non ci sono note da visualizzare.';
-        notesDashboard.append(emptyMessage);
-      }
-    }
-
-    // Aggiungi cavallo
-    addHorseBtn.onclick = ()=>{
-      const name = newHorseInput.value.trim();
-      if(!name) return alert('Inserisci nome valido!');
-      if(cavalli.includes(name)) return alert('Cavallo già esistente!');
-      cavalli.push(name); 
-      cavalli.sort(); 
-      
-      // Imposta disponibilità predefinita per nuovo cavallo
-      cavalliDisponibilita[name] = true;
-      saveHorseAvailability();
-      
-      saveHorses(); 
-      newHorseInput.value='';
-    };
-
-    // Gestione eliminazione cavallo dal profilo
-    deleteHorseBtn.onclick = ()=>{
-      confirmDeleteHorse(currentHorse);
-    };
-
-    // Aggiunto: Gestione disponibilità cavallo
-    toggleAvailabilityBtn.onclick = () => {
-      // Toggle disponibilità
-      cavalliDisponibilita[currentHorse] = !cavalliDisponibilita[currentHorse];
-      
-      // Aggiorna UI
-      updateAvailabilityButton();
-      
-      // Salva
-      saveHorseAvailability();
-      
-      // Aggiorna interfaccia utente
-      renderHorsesUI();
-    };
-    
-    // Aggiornamento pulsante disponibilità
-    function updateAvailabilityButton() {
-      const disponibile = cavalliDisponibilita[currentHorse];
-      
-      if (disponibile) {
-        toggleAvailabilityBtn.textContent = 'Rendi indisponibile';
-        toggleAvailabilityBtn.className = 'btn btn-danger';
-      } else {
-        toggleAvailabilityBtn.textContent = 'Rendi disponibile';
-        toggleAvailabilityBtn.className = 'btn btn-success';
-      }
-    }
-
-    // Conferma/elimina cavallo
-    function confirmDeleteHorse(h){
-      document.getElementById('delete-horse-name').textContent = h;
-      confirmDeleteHorseBtn.dataset.horse = h;
-      deleteHorseModal.show();
-    }
-    confirmDeleteHorseBtn.onclick = ()=>{
-      const h = confirmDeleteHorseBtn.dataset.horse;
-      cavalli = cavalli.filter(x=>x!==h);
-      calendar.getEvents().forEach(ev=>{
-        if(ev.extendedProps.horses?.includes(h)){
-          const arr = ev.extendedProps.horses.filter(x=>x!==h);
-          ev.setExtendedProp('horses',arr);
-          const t = ev.extendedProps.type;
-          ev.setProp('title', t + (arr.length?` (${arr.join(',')})`:``));
-        }
-      });
-      delete cavalliNotes[h]; 
-      delete noteDaGestire[h];
-      delete cavalliDisponibilita[h]; // Rimuovi anche disponibilità
-      saveHorseNotes();
-      saveNotesToManage();
-      saveHorseAvailability();
-      saveHorses(); saveEvents(); updateAll();
-      deleteHorseModal.hide();
-      profileModal.hide(); // Chiude anche il modale del profilo
-    };
-
-    // Gestione ora di inizio e fine
-    function updateEndTimeBasedOnStart() {
-      const startTime = new Date(startEl.value);
-      // Calcoliamo la fine esattamente un'ora dopo
-      const endTime = new Date(startTime.getTime() + 3600000);
-      // Impostiamo il valore dell'input di fine usando il formato corretto
-      endEl.value = formatDateTimeLocal(endTime);
-    }
-
-    // Formatta data per datetime-local input
-    function formatDateTimeLocal(date) {
-      // Considera il fuso orario locale
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-      
-      return `${year}-${month}-${day}T${hours}:${minutes}`;
     }
     
-    // Apri form evento
-    function openForm(ev, start, end){
-      editingEvent = ev;
-      modalTitle.textContent = ev ? 'Modifica Attività' : 'Nuova Attività';
-      renderHorsesUI();
+    // Login con email e password
+    loginBtn.addEventListener('click', () => {
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
       
-      // Reset della selezione dei cavalli
-      Array.from(selectEl.options).forEach(opt => {
-        opt.selected = false;
-      });
-      
-      typeEl.value = ev?.extendedProps.type || '';
-      
-      // Se è un nuovo evento, impostiamo l'ora di inizio e fine di default
-      if (!ev) {
-        // Usiamo il formato corretto per evitare problemi di fuso orario
-        startEl.value = formatDateTimeLocal(start);
-        endEl.value = formatDateTimeLocal(end);
-        // Reset note per nuovo evento
-        notesEl.value = '';
-      } else {
-        // Se è un evento esistente, manteniamo gli orari originali
-        startEl.value = formatDateTimeLocal(ev.start);
-        endEl.value = formatDateTimeLocal(ev.end);
-        notesEl.value = ev?.extendedProps.notes || '';
-        
-        // Seleziona i cavalli dell'evento esistente
-        ev.extendedProps.horses.forEach(h => {
-          const o = selectEl.querySelector(`option[value="${h}"]`);
-          if(o) o.selected = true;
-        });
-      }
-      
-      // Quando l'orario di inizio cambia, aggiorniamo automaticamente l'orario di fine
-      startEl.onchange = () => {
-        // Solo per nuovi eventi impostiamo automaticamente l'orario di fine
-        if (!ev) {
-          updateEndTimeBasedOnStart();
-        } else {
-          // Per eventi esistenti controlliamo solo che l'orario di fine non sia precedente all'inizio
-          const s = new Date(startEl.value),
-                e = new Date(endEl.value);
-          if (e <= s) {
-            endEl.value = formatDateTimeLocal(new Date(s.getTime() + 3600000));
-          }
-        }
-      };
-      
-      // Verifica cavalli indisponibili quando si apre il form
-      checkSelectedUnavailableHorses();
-      
-      deleteBtn.style.display = ev ? 'inline-block' : 'none';
-      eventModal.show();
-    }
-
-    // Salva evento
-    saveBtn.onclick = ()=>{
-      const hs = Array.from(selectEl.selectedOptions).map(o=>o.value);
-      const tp = typeEl.value, nt = notesEl.value.trim();
-      
-      // Otteniamo le date di inizio e fine esatte
-      const s = new Date(startEl.value);
-      const ed = new Date(endEl.value);
-      
-      if(!activities.includes(tp) || ed <= s) return alert('Tipo o orari errati');
-      
-      // Verifica disponibilità cavalli per lezioni e passeggiate
-      if ((tp === 'passeggiata' || tp === 'lezione') && hs.some(h => !cavalliDisponibilita[h])) {
-        return alert('Non puoi programmare lezioni o passeggiate con cavalli non disponibili!');
-      }
-      
-      // Verifica conflitti solo con altri eventi (non con l'evento corrente)
-      // e solo se ci sono cavalli selezionati e solo per eventi che coinvolgono gli stessi cavalli
-      const conflict = hs.length > 0 && calendar.getEvents().some(ev => {
-        // Ignora se è lo stesso evento
-        if (editingEvent && ev.id === editingEvent.id) return false;
-        
-        // Verifica sovrapposizione temporale
-        const evStart = ev.start, evEnd = ev.end;
-        const isOverlapping = (s < evEnd && ed > evStart);
-        
-        // Verifica se ci sono cavalli in comune
-        const hasCommonHorses = ev.extendedProps.horses.some(h => hs.includes(h));
-        
-        return isOverlapping && hasCommonHorses;
-      });
-
-      if (conflict) {
-        return alert('Conflitto: cavallo già impegnato in questo orario!');
-      }
-
-      // Prepara titolo con tipo e cavalli se presenti
-      const title = tp + (hs.length ? ` (${hs.join(',')})` : '');
-
-      // Modifica evento esistente o crea nuovo
-      if (editingEvent) {
-        editingEvent.setProp('title', title);
-        editingEvent.setProp('backgroundColor', activityColors[tp]);
-        editingEvent.setStart(s);
-        editingEvent.setEnd(ed);
-        editingEvent.setExtendedProp('type', tp);
-        editingEvent.setExtendedProp('horses', hs);
-        editingEvent.setExtendedProp('notes', nt);
-      } else {
-        // Crea nuovo evento con ID univoco
-        calendar.addEvent({
-          id: Date.now().toString(),
-          title: title,
-          start: s,
-          end: ed,
-          backgroundColor: activityColors[tp],
-          extendedProps: {
-            type: tp,
-            horses: hs,
-            notes: nt
-          }
-        });
-      }
-
-      saveEvents();
-      updateAll();
-      eventModal.hide();
-    };
-
-    // Elimina evento
-    deleteBtn.onclick = () => {
-      if (confirm('Sei sicuro di voler eliminare questo evento?')) {
-        editingEvent.remove();
-        saveEvents();
-        updateAll();
-        eventModal.hide();
-      }
-    };
-
-    // Apri profilo cavallo
-    function openProfile(h) {
-      currentHorse = h;
-      profileTitle.textContent = `Profilo di ${h}`;
-      horseNotesEl.value = cavalliNotes[h] || '';
-      
-      // Aggiorna pulsante disponibilità
-      updateAvailabilityButton();
-      
-      // Mostra eventi del cavallo
-      const events = calendar.getEvents()
-        .filter(ev => ev.extendedProps.horses?.includes(h))
-        .sort((a, b) => a.start - b.start);
-      
-      profileEvents.innerHTML = '';
-      
-      if (events.length === 0) {
-        const li = document.createElement('li');
-        li.className = 'list-group-item';
-        li.textContent = 'Nessun evento programmato';
-        profileEvents.append(li);
-      } else {
-        events.forEach(ev => {
-          const li = document.createElement('li');
-          li.className = 'list-group-item d-flex justify-content-between align-items-start';
-          
-          const dateStr = new Date(ev.start).toLocaleDateString('it');
-          const timeStr = `${new Date(ev.start).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})} - ${new Date(ev.end).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})}`;
-          
-          const main = document.createElement('div');
-          main.className = 'ms-2 me-auto';
-          
-          const titleEl = document.createElement('div');
-          titleEl.className = 'fw-bold';
-          titleEl.textContent = ev.extendedProps.type;
-          
-          const detail = document.createElement('div');
-          detail.textContent = `${dateStr}, ${timeStr}`;
-          
-          if (ev.extendedProps.notes) {
-            const notes = document.createElement('div');
-            notes.className = 'note-text mt-1';
-            notes.textContent = ev.extendedProps.notes;
-            main.append(titleEl, detail, notes);
-          } else {
-            main.append(titleEl, detail);
-          }
-          
-          const badge = document.createElement('span');
-          badge.className = 'badge rounded-pill';
-          badge.style.backgroundColor = activityColors[ev.extendedProps.type];
-          
-          // Calcola durata evento in ore
-          const hours = (ev.end - ev.start) / (1000 * 60 * 60);
-          badge.textContent = `${hours.toFixed(1)}h`;
-          
-          const viewBtn = document.createElement('button');
-          viewBtn.className = 'btn btn-sm btn-outline-primary mt-2';
-          viewBtn.textContent = 'Visualizza';
-          viewBtn.onclick = () => {
-            profileModal.hide();
-            openForm(ev, ev.start, ev.end);
-          };
-          
-          li.append(main, badge);
-          main.append(viewBtn);
-          profileEvents.append(li);
-        });
-      }
-      
-      profileModal.show();
-    }
-
-    // Salva note cavallo
-    saveHorseNotesBtn.onclick = () => {
-      const notes = horseNotesEl.value.trim();
-      cavalliNotes[currentHorse] = notes;
-      
-      // Se la nota è vuota, rimuoviamo anche dallo stato "da gestire"
-      if (!notes && noteDaGestire[currentHorse]) {
-        delete noteDaGestire[currentHorse];
-        saveNotesToManage();
-      }
-      
-      saveHorseNotes();
-      renderNotesDashboard();
-      alert('Note salvate!');
-    };
-
-    // Imposta data per oggi di default
-    dateInput.value = todayFormatted;
-    dateInput.oninput = updateAll;
-
-    // Utility per calcolare ore di cavallo
-    function getHoursWorked(h, start, end, dailyOnly = false) {
-      let total = 0;
-      
-      calendar.getEvents().forEach(ev => {
-        // Controlla se il cavallo è presente
-        if (!ev.extendedProps.horses?.includes(h)) return;
-        
-        // Controlla se l'attività è di lavoro
-        if (!workActivities.includes(ev.extendedProps.type)) return;
-        
-        // Controlla periodo (giorno o settimana)
-        const evStart = new Date(ev.start);
-        const evDate = evStart.toISOString().slice(0, 10);
-        
-        if (dailyOnly) {
-          // Solo eventi del giorno selezionato
-          if (evDate !== start) return;
-        } else {
-          // Solo eventi nella settimana selezionata
-          if (evStart < start || evStart > end) return;
-        }
-        
-        // Calcola ore
-        const hours = (ev.end - ev.start) / (1000 * 60 * 60);
-        total += hours;
-      });
-      
-      return total;
-    }
-
-    // Aggiorna tutti i riepiloghi
-    function updateAll() {
-      const date = dateInput.value;
-      
-      // Calcola inizio e fine settimana
-      const d = new Date(date);
-      const day = d.getDay() || 7; // 0 = domenica, quindi diventa 7
-      
-      // Trova lunedì della settimana corrente
-      const monday = new Date(d);
-      monday.setDate(d.getDate() - day + 1);
-      
-      // Trova domenica della settimana corrente
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      
-      // Formatta per visualizzazione
-      const mondayStr = monday.toLocaleDateString('it');
-      const sundayStr = sunday.toLocaleDateString('it');
-      weekRangeEl.textContent = `(${mondayStr} - ${sundayStr})`;
-      
-      // Aggiorna ore di lavoro giornaliere
-      hoursEl.innerHTML = '';
-      let dailyTotalHours = 0;
-      
-      cavalli.forEach(h => {
-        const hours = getHoursWorked(h, date, null, true);
-        if (hours > 0) {
-          dailyTotalHours += hours;
-          const li = document.createElement('div');
-          li.className = 'list-group-item d-flex justify-content-between align-items-center';
-          li.textContent = h;
-          
-          // Aggiunto: Indicatore di disponibilità
-          if (!cavalliDisponibilita[h]) {
-            const badge = document.createElement('span');
-            badge.className = 'badge bg-danger me-2';
-            badge.textContent = 'Non disponibile';
-            li.appendChild(badge);
-          }
-          
-          const badge = document.createElement('span');
-          badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours)}`;
-          badge.textContent = `${hours.toFixed(1)}h`;
-          
-          li.appendChild(badge);
-          hoursEl.append(li);
-        }
-      });
-      
-      // Totale ore giornaliere - SEMPRE BLU
-      if (dailyTotalHours > 0) {
-        const li = document.createElement('div');
-        li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
-        li.textContent = 'Totale';
-        
-        const badge = document.createElement('span');
-        badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(dailyTotalHours, true, true)}`; // Il terzo parametro indica che è un totale
-        badge.textContent = `${dailyTotalHours.toFixed(1)}h`;
-        
-        li.appendChild(badge);
-        hoursEl.append(li);
-      } else if (hoursEl.innerHTML === '') {
-        hoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
-      }
-      
-      // Aggiorna ore settimanali
-      weeklyHoursEl.innerHTML = '';
-      let weeklyTotalHours = 0;
-      
-      cavalli.forEach(h => {
-        const hours = getHoursWorked(h, monday, sunday);
-        if (hours > 0) {
-          weeklyTotalHours += hours;
-          const li = document.createElement('div');
-          li.className = 'list-group-item d-flex justify-content-between align-items-center';
-          li.textContent = h;
-          
-          // Aggiunto: Indicatore di disponibilità
-          if (!cavalliDisponibilita[h]) {
-            const badge = document.createElement('span');
-            badge.className = 'badge bg-danger me-2';
-            badge.textContent = 'Non disponibile';
-            li.appendChild(badge);
-          }
-          
-          const badge = document.createElement('span');
-          badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours, false)}`;
-          badge.textContent = `${hours.toFixed(1)}h`;
-          
-          li.appendChild(badge);
-          weeklyHoursEl.append(li);
-        }
-      });
-      
-      // Totale ore settimanali - SEMPRE BLU
-      if (weeklyTotalHours > 0) {
-        const li = document.createElement('div');
-        li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
-        li.textContent = 'Totale';
-        
-        const badge = document.createElement('span');
-        badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(weeklyTotalHours, false, true)}`; // Il terzo parametro indica che è un totale
-        badge.textContent = `${weeklyTotalHours.toFixed(1)}h`;
-        
-        li.appendChild(badge);
-        weeklyHoursEl.append(li);
-      } else if (weeklyHoursEl.innerHTML === '') {
-        weeklyHoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
-      }
-      
-      // Aggiorna eventi giornalieri
-      updateEventsList(date, null, true, dailyListEl);
-      
-      // Aggiorna eventi settimanali
-      updateEventsList(monday, sunday, false, weeklyListEl);
-    }
-
-    // Aggiorna lista eventi
-    function updateEventsList(start, end, isDaily, container) {
-      container.innerHTML = '';
-      
-      // Filtra eventi
-      const events = calendar.getEvents().filter(ev => {
-        const evStart = new Date(ev.start);
-        const evDate = evStart.toISOString().slice(0, 10);
-        
-        if (isDaily) {
-          // Solo eventi del giorno selezionato
-          return evDate === start;
-        } else {
-          // Solo eventi nella settimana selezionata
-          return evStart >= start && evStart <= end;
-        }
-      }).sort((a, b) => a.start - b.start);
-      
-      if (events.length === 0) {
-        const li = document.createElement('li');
-        li.className = 'list-group-item';
-        li.textContent = 'Nessun evento programmato';
-        container.append(li);
+      if (!email || !password) {
+        loginError.textContent = 'Inserisci email e password';
         return;
       }
       
-      events.forEach(ev => {
-        const li = document.createElement('li');
-        li.className = 'list-group-item';
+      setLoading(true);
+      loginError.textContent = '';
+      
+      auth.signInWithEmailAndPassword(email, password)
+        .catch(error => {
+          console.error('Errore login:', error);
+          
+          // Messaggio di errore in italiano
+          let errorMessage = 'Errore durante l\'accesso. Riprova.';
+          if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+            errorMessage = 'Email o password non corretti';
+          } else if (error.code === 'auth/invalid-email') {
+            errorMessage = 'Email non valida';
+          } else if (error.code === 'auth/too-many-requests') {
+            errorMessage = 'Troppi tentativi falliti. Riprova più tardi.';
+          }
+          
+          loginError.textContent = errorMessage;
+          setLoading(false);
+        });
+    });
+    
+    // Logout
+    logoutBtn.addEventListener('click', () => {
+      auth.signOut();
+    });
+    
+    // Gestisci stato autenticazione
+    auth.onAuthStateChanged(user => {
+      setLoading(false);
+      
+      if (user) {
+        // Utente loggato
+        loginContainer.classList.add('d-none');
+        appContainer.classList.remove('d-none');
+        userEmailElement.textContent = user.email;
         
-        const timeStr = `${new Date(ev.start).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})} - ${new Date(ev.end).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})}`;
-        
-        const dateSpan = document.createElement('span');
-        dateSpan.className = 'badge text-bg-secondary me-2';
-        
-        // Mostra data solo negli eventi settimanali
-        if (!isDaily) {
-          dateSpan.textContent = new Date(ev.start).toLocaleDateString('it', {weekday: 'short', day: 'numeric'});
-          li.append(dateSpan);
-        }
-        
-        const typeSpan = document.createElement('span');
-        typeSpan.className = 'badge me-2';
-        typeSpan.style.backgroundColor = activityColors[ev.extendedProps.type];
-        typeSpan.textContent = ev.extendedProps.type;
-        
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'me-2';
-        timeSpan.textContent = timeStr;
-        
-        const horsesSpan = document.createElement('span');
-        horsesSpan.className = 'fw-bold';
-        
-        // Aggiungi indicatori di disponibilità per i cavalli
-        const horses = ev.extendedProps.horses;
-        if (horses.length) {
-          horses.forEach((h, idx) => {
-            const horseSpan = document.createElement('span');
-            horseSpan.textContent = h;
-            
-            // Aggiungi classe in base alla disponibilità
-            if (!cavalliDisponibilita[h]) {
-              horseSpan.className = 'text-danger';
-            }
-            
-            // Aggiungi virgola se non è l'ultimo cavallo
-            if (idx < horses.length - 1) {
-              horseSpan.textContent += ', ';
-            }
-            
-            horsesSpan.appendChild(horseSpan);
-          });
-        } else {
-          horsesSpan.textContent = 'Nessun cavallo';
-        }
-        
-        li.append(typeSpan, timeSpan, horsesSpan);
-        
-        if (ev.extendedProps.notes) {
-          const notesEl = document.createElement('div');
-          notesEl.className = 'note-text mt-1';
-          notesEl.textContent = ev.extendedProps.notes;
-          li.append(notesEl);
-        }
-        
-        const btnShowEvent = document.createElement('button');
-        btnShowEvent.className = 'btn btn-sm btn-outline-primary mt-2';
-        btnShowEvent.textContent = 'Visualizza';
-        btnShowEvent.onclick = () => openForm(ev, ev.start, ev.end);
-        li.append(btnShowEvent);
-        
-        container.append(li);
-      });
-    }
+        // Ora inizializziamo l'app con Firebase
+        initializeApp(user);
+      } else {
+        // Utente non loggato
+        loginContainer.classList.remove('d-none');
+        appContainer.classList.add('d-none');
+        emailInput.value = '';
+        passwordInput.value = '';
+      }
+    });
+    
+    // Pressione tasto Invio nel form di login
+    passwordInput.addEventListener('keyup', (event) => {
+      if (event.key === 'Enter') {
+        loginBtn.click();
+      }
+    });
+    
+    function initializeApp(user) {
+      // Riferimenti al database
+      const dbRef = database.ref('users/' + user.uid);
+      
+      // Dati iniziali
+      let cavalli = [];
+      let cavalliNotes = {};
+      let noteDaGestire = {};
+      let cavalliDisponibilita = {};
+      
+      const activities     = ["passeggiata","lezione","ferratura","altro"];
+      const workActivities = ["passeggiata","lezione"];
+      const activityColors = {
+        "passeggiata":"#198754","lezione":"#0d6efd",
+        "ferratura":"#dc3545","altro":"#6c757d"
+      };
+      const todayFormatted = new Date().toISOString().slice(0,10);
 
-    // Primo aggiornamento all'avvio
-    updateAll();
+      // Riferimenti UI
+      const calendarEl         = document.getElementById('calendar');
+      const dateInput          = document.getElementById('summary-date');
+      const hoursEl            = document.getElementById('hours');
+      const dailyListEl        = document.getElementById('daily-events');
+      const weeklyHoursEl      = document.getElementById('weekly-hours');
+      const weeklyListEl       = document.getElementById('weekly-events');
+      const weekRangeEl        = document.getElementById('week-range');
+      const profilesList       = document.getElementById('profiles-list');
+      const notesDashboard     = document.getElementById('notes-dashboard');
+      const newHorseInput      = document.getElementById('new-horse-name');
+      const addHorseBtn        = document.getElementById('add-horse-btn');
+      const newEventBtn        = document.getElementById('new-event-button');
+      const horseNotesEl       = document.getElementById('horse-notes');
+      const saveHorseNotesBtn  = document.getElementById('save-horse-notes');
+      const confirmDeleteHorseBtn = document.getElementById('confirm-delete-horse');
+      const deleteHorseBtn     = document.getElementById('delete-horse-btn');
+      const unavailableHorsesWarning = document.getElementById('unavailable-horses-warning');
+      const toggleAvailabilityBtn = document.getElementById('toggle-availability');
+      const eventModal    = new bootstrap.Modal(document.getElementById('eventModal'));
+      const profileModal  = new bootstrap.Modal(document.getElementById('profileModal'));
+      const deleteHorseModal = new bootstrap.Modal(document.getElementById('deleteHorseModal'));
+      const form          = document.getElementById('event-form');
+      const selectEl      = document.getElementById('horses-select');
+      const typeEl        = document.getElementById('activity-type');
+      const startEl       = document.getElementById('start-time');
+      const endEl         = document.getElementById('end-time');
+      const notesEl       = document.getElementById('event-notes');
+      const deleteBtn     = document.getElementById('delete-event');
+      const saveBtn       = document.getElementById('save-event');
+      const modalTitle    = document.getElementById('modal-title');
+      const profileTitle  = document.getElementById('profile-title');
+      const profileEvents = document.getElementById('profile-events');
+
+      let editingEvent = null, currentHorse = null;
+      let touchStartTime = 0;
+      let touchStartY = 0;
+      let moved = false;
+
+      // FullCalendar init
+      const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        firstDay: 1,
+        slotMinTime: "00:00",
+        slotMaxTime: "24:00",
+        slotDuration: '01:00:00',
+        defaultTimedEventDuration: '01:00:00',
+        selectable: true,
+        selectMinDistance: 5, // Ridotta per facilitare il tap
+        selectLongPressDelay: 150, // Ridotto per rendere più reattivo il tap
+        editable: true,
+        nowIndicator: true,
+        locale: 'it',
+        timeZone: 'local',
+        height: 'auto', // Altezza automatica per adattarsi meglio ai dispositivi
+        headerToolbar: {
+          left: 'prev,next today',
+          center: 'title',
+          right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        buttonText: {
+          today: 'Oggi',
+          month: 'Mese',
+          week: 'Sett.',
+          day: 'Giorno'
+        },
+        allDaySlot: false, // Rimuove la riga all-day
+        // Modificato: Configurazioni specifiche per la vista mensile
+        views: {
+          dayGridMonth: {
+            // Aumenta l'altezza della vista mensile e imposta la visualizzazione degli eventi
+            dayMaxEventRows: 3, // Massimo 3 eventi visibili per cella
+          }
+        },
+        select: info => {
+          calendar.unselect();
+          // Otteniamo l'ora esatta cliccata e correggiamo eventuali problemi di fuso orario
+          const s = new Date(info.startStr);
+          // Calcoliamo la fine esattamente un'ora dopo
+          const e = new Date(s.getTime() + 3600000);
+          openForm(null, s, e);
+        },
+        eventClick: info => openForm(info.event, info.event.start, info.event.end),
+        eventDrop: ()=>{ saveEvents(); updateAll(); },
+        eventResize: ()=>{ saveEvents(); updateAll(); },
+        eventDidMount: info => {
+          if (info.event.extendedProps.notes) {
+            new bootstrap.Tooltip(info.el, {
+              title: info.event.extendedProps.notes,
+              placement: 'top',
+              trigger: 'hover',
+              container: 'body'
+            });
+          }
+        }
+      });
+      calendar.render();
+
+      // Migliorare l'interazione touch sul calendario
+      calendarEl.addEventListener('touchstart', function(e) {
+        touchStartTime = Date.now();
+        touchStartY = e.touches[0].clientY;
+        moved = false;
+      }, { passive: true });
+
+      calendarEl.addEventListener('touchmove', function(e) {
+        const yDiff = Math.abs(e.touches[0].clientY - touchStartY);
+        if (yDiff > 5) { // Ridotta la soglia per migliorare la reattività
+          moved = true;
+        }
+      }, { passive: true });
+
+      calendarEl.addEventListener('touchend', function(e) {
+        // Se il tocco è durato meno di 300ms e non ci sono stati movimenti significativi,
+        // consideriamolo come un tap per selezionare una cella
+        const touchDuration = Date.now() - touchStartTime;
+        if (touchDuration < 300 && !moved) {
+          // Non facciamo nulla qui, lasciamo che FullCalendar gestisca il tap
+        }
+      }, { passive: true });
+
+      // Pulsante nuovo evento
+      newEventBtn.addEventListener('click', function() {
+        const now = new Date();
+        // Arrotondiamo all'ora successiva
+        const nextHour = new Date(now);
+        nextHour.setHours(now.getHours() + 1);
+        nextHour.setMinutes(0);
+        nextHour.setSeconds(0);
+        nextHour.setMilliseconds(0);
+        
+        // Calcoliamo l'ora di fine (un'ora dopo l'inizio)
+        const endHour = new Date(nextHour.getTime() + 3600000);
+        
+        openForm(null, nextHour, endHour);
+      });
+
+      // Firebase helpers
+      function saveHorses() {
+        dbRef.child('cavalli').set(cavalli);
+        renderHorsesUI();
+      }
+      
+      function saveHorseNotes() {
+        dbRef.child('cavalliNotes').set(cavalliNotes);
+      }
+      
+      function saveNotesToManage() {
+        dbRef.child('noteDaGestire').set(noteDaGestire);
+      }
+      
+      function saveHorseAvailability() {
+        dbRef.child('cavalliDisponibilita').set(cavalliDisponibilita);
+      }
+      
+      function saveEvents() {
+        const arr = calendar.getEvents().map(e=>({
+          id: e.id,
+          title: e.title,
+          start: e.start.toISOString(),
+          end:   e.end.toISOString(),
+          extendedProps: e.extendedProps,
+          backgroundColor: e.backgroundColor
+        }));
+        dbRef.child('events').set(arr);
+      }
+      
+      // Carica dati da Firebase
+      function loadData() {
+        setLoading(true);
+        
+        dbRef.once('value')
+          .then(snapshot => {
+            const data = snapshot.val() || {};
+            
+            // Carica tutti i dati o imposta i valori predefiniti
+            cavalli = data.cavalli || ["Angel","Celine","Dior","John","Nina","Pioggia","Revoltoso","Wapi","Zia"];
+            cavalliNotes = data.cavalliNotes || {};
+            noteDaGestire = data.noteDaGestire || {};
+            cavalliDisponibilita = data.cavalliDisponibilita || {};
+            
+            // Inizializza disponibilità per i cavalli che non ne hanno
+            cavalli.forEach(h => {
+              if (cavalliDisponibilita[h] === undefined) {
+                cavalliDisponibilita[h] = true; // true = disponibile
+              }
+            });
+            
+            // Carica gli eventi nel calendario
+            calendar.removeAllEvents();
+            if (data.events && Array.isArray(data.events)) {
+              data.events.forEach(ev => calendar.addEvent(ev));
+            }
+            
+            // Aggiorna l'interfaccia
+            renderHorsesUI();
+            updateAll();
+            setLoading(false);
+          })
+          .catch(error => {
+            console.error('Errore caricamento dati:', error);
+            setLoading(false);
+            alert('Errore durante il caricamento dei dati. Riprova più tardi.');
+          });
+      }
+      
+      // Quando i dati cambiano in Firebase, aggiorna l'app
+      dbRef.on('value', snapshot => {
+        const data = snapshot.val() || {};
+        
+        // Aggiorniamo solo se ci sono cambiamenti effettivi
+        // Nota: confrontiamo le stringhe JSON per evitare problemi con riferimenti di oggetti
+        const newCavalli = JSON.stringify(data.cavalli || []);
+        const newNotes = JSON.stringify(data.cavalliNotes || {});
+        const newNoteDaGestire = JSON.stringify(data.noteDaGestire || {});
+        const newDisponibilita = JSON.stringify(data.cavalliDisponibilita || {});
+        const currentCavalli = JSON.stringify(cavalli);
+        const currentNotes = JSON.stringify(cavalliNotes);
+        const currentNoteDaGestire = JSON.stringify(noteDaGestire);
+        const currentDisponibilita = JSON.stringify(cavalliDisponibilita);
+        
+        // Verifica se gli eventi sono cambiati
+        let eventsChanged = false;
+        if (data.events) {
+          const currentEvents = calendar.getEvents().map(e => e.id).sort().join(',');
+          const newEvents = data.events.map(e => e.id).sort().join(',');
+          eventsChanged = currentEvents !== newEvents;
+        }
+        
+        // Se qualcosa è cambiato, ricarichiamo i dati
+        if (newCavalli !== currentCavalli ||
+            newNotes !== currentNotes ||
+            newNoteDaGestire !== currentNoteDaGestire ||
+            newDisponibilita !== currentDisponibilita ||
+            eventsChanged) {
+          
+          // Ricarica solo se non stiamo già caricando
+          if (!loadingOverlay.classList.contains('d-none')) return;
+          
+          console.log('Dati cambiati in Firebase, ricarico...');
+          loadData();
+        }
+      });
+
+      // Verifica cavalli indisponibili selezionati
+      function checkSelectedUnavailableHorses() {
+        const selectedHorses = Array.from(selectEl.selectedOptions).map(o => o.value);
+        const unavailableSelected = selectedHorses.some(h => !cavalliDisponibilita[h]);
+        const activityType = typeEl.value;
+        
+        // Mostra avviso se ci sono cavalli indisponibili selezionati
+        if (unavailableSelected && (activityType === 'passeggiata' || activityType === 'lezione')) {
+          unavailableHorsesWarning.classList.remove('d-none');
+          saveBtn.disabled = true;
+        } else {
+          unavailableHorsesWarning.classList.add('d-none');
+          saveBtn.disabled = false;
+        }
+      }
+
+      // Event listener per il cambio di selezione cavalli
+      selectEl.addEventListener('change', checkSelectedUnavailableHorses);
+      
+      // Event listener per il cambio di tipo attività
+      typeEl.addEventListener('change', checkSelectedUnavailableHorses);
+
+      // Render cavalli UI
+      function renderHorsesUI() {
+        // Aggiorna il dropdown dei cavalli nel form eventi
+        selectEl.innerHTML = '';
+        cavalli.forEach(h => {
+          const o = document.createElement('option');
+          o.value = h;
+          o.textContent = h;
+          
+          // Aggiungi indicatore di disponibilità al nome
+          if (!cavalliDisponibilita[h]) {
+            o.textContent = `${h} (Non disponibile)`;
+            o.classList.add('text-danger');
+          }
+          
+          selectEl.append(o);
+        });
+        
+        // Aggiorna la lista dei profili cavalli
+        profilesList.innerHTML = '';
+        cavalli.forEach(h => {
+          const btn = document.createElement('button');
+          // Imposta classe in base alla disponibilità
+          const disponibile = cavalliDisponibilita[h];
+          btn.className = `btn horse-btn ${disponibile ? 'available' : 'unavailable'}`;
+          btn.textContent = h;
+          btn.onclick = () => openProfile(h);
+          
+          // Aggiungi indicatore di disponibilità
+          const indicator = document.createElement('span');
+          indicator.className = `availability-indicator ${disponibile ? 'available' : 'unavailable'}`;
+          indicator.innerHTML = disponibile ? '&#10003;' : '&#10007;'; // Checkmark o X
+          btn.appendChild(indicator);
+          
+          profilesList.append(btn);
+        });
+        
+        renderNotesDashboard();
+      }
+
+      // Render bacheca note
+      function renderNotesDashboard() {
+        notesDashboard.innerHTML = '';
+        
+        let hasNotes = false;
+        
+        // Controlliamo sia le note dei cavalli che le note da gestire
+        for (const horseName of cavalli) {
+          const horseNote = cavalliNotes[horseName];
+          if (horseNote && horseNote.trim()) {
+            hasNotes = true;
+            
+            // Verifichiamo se questa nota è già marcata come "da gestire"
+            const needsManagement = noteDaGestire[horseName] === true;
+            
+            const noteCard = document.createElement('div');
+            noteCard.className = 'note-card' + (needsManagement ? ' border-danger' : '');
+            
+            const horseNameEl = document.createElement('div');
+            horseNameEl.className = 'horse-name';
+            horseNameEl.textContent = horseName;
+            
+            // Aggiungi indicatore di disponibilità
+            if (!cavalliDisponibilita[horseName]) {
+              const availabilitySpan = document.createElement('span');
+              availabilitySpan.className = 'badge bg-danger ms-2';
+              availabilitySpan.textContent = 'Non disponibile';
+              horseNameEl.appendChild(availabilitySpan);
+            }
+            
+            const noteContent = document.createElement('div');
+            noteContent.className = 'note-content';
+            noteContent.textContent = horseNote;
+            
+            const actions = document.createElement('div');
+            actions.className = 'note-actions';
+            
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'btn btn-sm btn-outline-primary';
+            viewBtn.textContent = 'Visualizza profilo';
+            viewBtn.onclick = () => openProfile(horseName);
+            
+            const manageBtn = document.createElement('button');
+            manageBtn.className = 'btn btn-sm ' + (needsManagement ? 'btn-success' : 'btn-outline-warning');
+            manageBtn.textContent = needsManagement ? 'Completata' : 'Segna come da gestire';
+            manageBtn.onclick = () => {
+              // Toggle lo stato "da gestire"
+              if (needsManagement) {
+                delete noteDaGestire[horseName];
+              } else {
+                noteDaGestire[horseName] = true;
+              }
+              saveNotesToManage();
+              renderNotesDashboard();
+            };
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn btn-sm btn-outline-danger';
+            removeBtn.textContent = 'Rimuovi nota';
+            removeBtn.onclick = () => {
+              // Rimuove la nota sia dalla lista generale che da quelle da gestire
+              cavalliNotes[horseName] = '';
+              delete noteDaGestire[horseName];
+              saveHorseNotes();
+              saveNotesToManage();
+              renderNotesDashboard();
+            };
+            
+            actions.append(viewBtn, manageBtn, removeBtn);
+            noteCard.append(horseNameEl, noteContent, actions);
+            notesDashboard.append(noteCard);
+          }
+        }
+        
+        if (!hasNotes) {
+          const emptyMessage = document.createElement('div');
+          emptyMessage.className = 'alert alert-light';
+          emptyMessage.textContent = 'Non ci sono note da visualizzare.';
+          notesDashboard.append(emptyMessage);
+        }
+      }
+
+      // Aggiungi cavallo
+      addHorseBtn.onclick = ()=>{
+        const name = newHorseInput.value.trim();
+        if(!name) return alert('Inserisci nome valido!');
+        if(cavalli.includes(name)) return alert('Cavallo già esistente!');
+        cavalli.push(name); 
+        cavalli.sort(); 
+        
+        // Imposta disponibilità predefinita per nuovo cavallo
+        cavalliDisponibilita[name] = true;
+        saveHorseAvailability();
+        
+        saveHorses(); 
+        newHorseInput.value='';
+      };
+
+      // Gestione eliminazione cavallo dal profilo
+      deleteHorseBtn.onclick = ()=>{
+        confirmDeleteHorse(currentHorse);
+      };
+
+      // Gestione disponibilità cavallo
+      toggleAvailabilityBtn.onclick = () => {
+        // Toggle disponibilità
+        cavalliDisponibilita[currentHorse] = !cavalliDisponibilita[currentHorse];
+        
+        // Aggiorna UI
+        updateAvailabilityButton();
+        
+        // Salva
+        saveHorseAvailability();
+        
+        // Aggiorna interfaccia utente
+        renderHorsesUI();
+      };
+      
+      // Aggiornamento pulsante disponibilità
+      function updateAvailabilityButton() {
+        const disponibile = cavalliDisponibilita[currentHorse];
+        
+        if (disponibile) {
+          toggleAvailabilityBtn.textContent = 'Rendi indisponibile';
+          toggleAvailabilityBtn.className = 'btn btn-danger';
+        } else {
+          toggleAvailabilityBtn.textContent = 'Rendi disponibile';
+          toggleAvailabilityBtn.className = 'btn btn-success';
+        }
+      }
+
+      // Conferma/elimina cavallo
+      function confirmDeleteHorse(h){
+        document.getElementById('delete-horse-name').textContent = h;
+        confirmDeleteHorseBtn.dataset.horse = h;
+        deleteHorseModal.show();
+      }
+      confirmDeleteHorseBtn.onclick = ()=>{
+        const h = confirmDeleteHorseBtn.dataset.horse;
+        cavalli = cavalli.filter(x=>x!==h);
+        calendar.getEvents().forEach(ev=>{
+          if(ev.extendedProps.horses?.includes(h)){
+            const arr = ev.extendedProps.horses.filter(x=>x!==h);
+            ev.setExtendedProp('horses',arr);
+            const t = ev.extendedProps.type;
+            ev.setProp('title', t + (arr.length?` (${arr.join(',')})`:``));
+          }
+        });
+        delete cavalliNotes[h]; 
+        delete noteDaGestire[h];
+        delete cavalliDisponibilita[h]; // Rimuovi anche disponibilità
+        saveHorseNotes();
+        saveNotesToManage();
+        saveHorseAvailability();
+        saveHorses(); saveEvents(); updateAll();
+        deleteHorseModal.hide();
+        profileModal.hide(); // Chiude anche il modale del profilo
+      };
+
+      // Gestione ora di inizio e fine
+      function updateEndTimeBasedOnStart() {
+        const startTime = new Date(startEl.value);
+        // Calcoliamo la fine esattamente un'ora dopo
+        const endTime = new Date(startTime.getTime() + 3600000);
+        // Impostiamo il valore dell'input di fine usando il formato corretto
+        endEl.value = formatDateTimeLocal(endTime);
+      }
+
+      // Formatta data per datetime-local input
+      function formatDateTimeLocal(date) {
+        // Considera il fuso orario locale
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      }
+      
+      // Apri form evento
+      function openForm(ev, start, end){
+        editingEvent = ev;
+        modalTitle.textContent = ev ? 'Modifica Attività' : 'Nuova Attività';
+        renderHorsesUI();
+        
+        // Reset della selezione dei cavalli
+        Array.from(selectEl.options).forEach(opt => {
+          opt.selected = false;
+        });
+        
+        typeEl.value = ev?.extendedProps.type || '';
+        
+        // Se è un nuovo evento, impostiamo l'ora di inizio e fine di default
+        if (!ev) {
+          // Usiamo il formato corretto per evitare problemi di fuso orario
+          startEl.value = formatDateTimeLocal(start);
+          endEl.value = formatDateTimeLocal(end);
+          // Reset note per nuovo evento
+          notesEl.value = '';
+        } else {
+          // Se è un evento esistente, manteniamo gli orari originali
+          startEl.value = formatDateTimeLocal(ev.start);
+          endEl.value = formatDateTimeLocal(ev.end);
+          notesEl.value = ev?.extendedProps.notes || '';
+          
+          // Seleziona i cavalli dell'evento esistente
+          ev.extendedProps.horses.forEach(h => {
+            const o = selectEl.querySelector(`option[value="${h}"]`);
+            if(o) o.selected = true;
+          });
+        }
+        
+        // Quando l'orario di inizio cambia, aggiorniamo automaticamente l'orario di fine
+        startEl.onchange = () => {
+          // Solo per nuovi eventi impostiamo automaticamente l'orario di fine
+          if (!ev) {
+            updateEndTimeBasedOnStart();
+          } else {
+            // Per eventi esistenti controlliamo solo che l'orario di fine non sia precedente all'inizio
+            const s = new Date(startEl.value),
+                  e = new Date(endEl.value);
+            if (e <= s) {
+              endEl.value = formatDateTimeLocal(new Date(s.getTime() + 3600000));
+            }
+          }
+        };
+        
+        // Verifica cavalli indisponibili quando si apre il form
+        checkSelectedUnavailableHorses();
+        
+        deleteBtn.style.display = ev ? 'inline-block' : 'none';
+        eventModal.show();
+      }
+
+      // Salva evento
+      saveBtn.onclick = ()=>{
+        const hs = Array.from(selectEl.selectedOptions).map(o=>o.value);
+        const tp = typeEl.value, nt = notesEl.value.trim();
+        
+        // Otteniamo le date di inizio e fine esatte
+        const s = new Date(startEl.value);
+        const ed = new Date(endEl.value);
+        
+        if(!activities.includes(tp) || ed <= s) return alert('Tipo o orari errati');
+        
+        // Verifica disponibilità cavalli per lezioni e passeggiate
+        if ((tp === 'passeggiata' || tp === 'lezione') && hs.some(h => !cavalliDisponibilita[h])) {
+          return alert('Non puoi programmare lezioni o passeggiate con cavalli non disponibili!');
+        }
+        
+        // Verifica conflitti solo con altri eventi (non con l'evento corrente)
+        // e solo se ci sono cavalli selezionati e solo per eventi che coinvolgono gli stessi cavalli
+        const conflict = hs.length > 0 && calendar.getEvents().some(ev => {
+          // Ignora se è lo stesso evento
+          if (editingEvent && ev.id === editingEvent.id) return false;
+          
+          // Verifica sovrapposizione temporale
+          const evStart = ev.start, evEnd = ev.end;
+          const isOverlapping = (s < evEnd && ed > evStart);
+          
+          // Verifica se ci sono cavalli in comune
+          const hasCommonHorses = ev.extendedProps.horses.some(h => hs.includes(h));
+          
+          return isOverlapping && hasCommonHorses;
+        });
+
+        if (conflict) {
+          return alert('Conflitto: cavallo già impegnato in questo orario!');
+        }
+
+        // Prepara titolo con tipo e cavalli se presenti
+        const title = tp + (hs.length ? ` (${hs.join(',')})` : '');
+
+        // Modifica evento esistente o crea nuovo
+        if (editingEvent) {
+          editingEvent.setProp('title', title);
+          editingEvent.setProp('backgroundColor', activityColors[tp]);
+          editingEvent.setStart(s);
+          editingEvent.setEnd(ed);
+          editingEvent.setExtendedProp('type', tp);
+          editingEvent.setExtendedProp('horses', hs);
+          editingEvent.setExtendedProp('notes', nt);
+        } else {
+          // Crea nuovo evento con ID univoco
+          calendar.addEvent({
+            id: Date.now().toString(),
+            title: title,
+            start: s,
+            end: ed,
+            backgroundColor: activityColors[tp],
+            extendedProps: {
+              type: tp,
+              horses: hs,
+              notes: nt
+            }
+          });
+        }
+
+        saveEvents();
+        updateAll();
+        eventModal.hide();
+      };
+
+      // Elimina evento
+      deleteBtn.onclick = () => {
+        if (confirm('Sei sicuro di voler eliminare questo evento?')) {
+          editingEvent.remove();
+          saveEvents();
+          updateAll();
+          eventModal.hide();
+        }
+      };
+
+      // Apri profilo cavallo
+      function openProfile(h) {
+        currentHorse = h;
+        profileTitle.textContent = `Profilo di ${h}`;
+        horseNotesEl.value = cavalliNotes[h] || '';
+        
+        // Aggiorna pulsante disponibilità
+        updateAvailabilityButton();
+        
+        // Mostra eventi del cavallo
+        const events = calendar.getEvents()
+          .filter(ev => ev.extendedProps.horses?.includes(h))
+          .sort((a, b) => a.start - b.start);
+        
+        profileEvents.innerHTML = '';
+        
+        if (events.length === 0) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.textContent = 'Nessun evento programmato';
+          profileEvents.append(li);
+        } else {
+          events.forEach(ev => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-start';
+            
+            const dateStr = new Date(ev.start).toLocaleDateString('it');
+            const timeStr = `${new Date(ev.start).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})} - ${new Date(ev.end).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})}`;
+            
+            const main = document.createElement('div');
+            main.className = 'ms-2 me-auto';
+            
+            const titleEl = document.createElement('div');
+            titleEl.className = 'fw-bold';
+            titleEl.textContent = ev.extendedProps.type;
+            
+            const detail = document.createElement('div');
+            detail.textContent = `${dateStr}, ${timeStr}`;
+            
+            if (ev.extendedProps.notes) {
+              const notes = document.createElement('div');
+              notes.className = 'note-text mt-1';
+              notes.textContent = ev.extendedProps.notes;
+              main.append(titleEl, detail, notes);
+            } else {
+              main.append(titleEl, detail);
+            }
+            
+            const badge = document.createElement('span');
+            badge.className = 'badge rounded-pill';
+            badge.style.backgroundColor = activityColors[ev.extendedProps.type];
+            
+            // Calcola durata evento in ore
+            const hours = (ev.end - ev.start) / (1000 * 60 * 60);
+            badge.textContent = `${hours.toFixed(1)}h`;
+            
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'btn btn-sm btn-outline-primary mt-2';
+            viewBtn.textContent = 'Visualizza';
+            viewBtn.onclick = () => {
+              profileModal.hide();
+              openForm(ev, ev.start, ev.end);
+            };
+            
+            li.append(main, badge);
+            main.append(viewBtn);
+            profileEvents.append(li);
+          });
+        }
+        
+        profileModal.show();
+      }
+
+      // Salva note cavallo
+      saveHorseNotesBtn.onclick = () => {
+        const notes = horseNotesEl.value.trim();
+        cavalliNotes[currentHorse] = notes;
+        
+        // Se la nota è vuota, rimuoviamo anche dallo stato "da gestire"
+        if (!notes && noteDaGestire[currentHorse]) {
+          delete noteDaGestire[currentHorse];
+          saveNotesToManage();
+        }
+        
+        saveHorseNotes();
+        renderNotesDashboard();
+        alert('Note salvate!');
+      };
+
+      // Imposta data per oggi di default
+      dateInput.value = todayFormatted;
+      dateInput.oninput = updateAll;
+
+      // Utility per calcolare ore di cavallo
+      function getHoursWorked(h, start, end, dailyOnly = false) {
+        let total = 0;
+        
+        calendar.getEvents().forEach(ev => {
+          // Controlla se il cavallo è presente
+          if (!ev.extendedProps.horses?.includes(h)) return;
+          
+          // Controlla se l'attività è di lavoro
+          if (!workActivities.includes(ev.extendedProps.type)) return;
+          
+          // Controlla periodo (giorno o settimana)
+          const evStart = new Date(ev.start);
+          const evDate = evStart.toISOString().slice(0, 10);
+          
+          if (dailyOnly) {
+            // Solo eventi del giorno selezionato
+            if (evDate !== start) return;
+          } else {
+            // Solo eventi nella settimana selezionata
+            if (evStart < start || evStart > end) return;
+          }
+          
+          // Calcola ore
+          const hours = (ev.end - ev.start) / (1000 * 60 * 60);
+          total += hours;
+        });
+        
+        return total;
+      }
+
+      // Aggiorna tutti i riepiloghi
+      function updateAll() {
+        const date = dateInput.value;
+        
+        // Calcola inizio e fine settimana
+        const d = new Date(date);
+        const day = d.getDay() || 7; // 0 = domenica, quindi diventa 7
+        
+        // Trova lunedì della settimana corrente
+        const monday = new Date(d);
+        monday.setDate(d.getDate() - day + 1);
+        
+        // Trova domenica della settimana corrente
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        
+        // Formatta per visualizzazione
+        const mondayStr = monday.toLocaleDateString('it');
+        const sundayStr = sunday.toLocaleDateString('it');
+        weekRangeEl.textContent = `(${mondayStr} - ${sundayStr})`;
+        
+        // Aggiorna ore di lavoro giornaliere
+        hoursEl.innerHTML = '';
+        let dailyTotalHours = 0;
+        
+        cavalli.forEach(h => {
+          const hours = getHoursWorked(h, date, null, true);
+          if (hours > 0) {
+            dailyTotalHours += hours;
+            const li = document.createElement('div');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.textContent = h;
+            
+            // Aggiunto: Indicatore di disponibilità
+            if (!cavalliDisponibilita[h]) {
+              const badge = document.createElement('span');
+              badge.className = 'badge bg-danger me-2';
+              badge.textContent = 'Non disponibile';
+              li.appendChild(badge);
+            }
+            
+            const badge = document.createElement('span');
+            badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours)}`;
+            badge.textContent = `${hours.toFixed(1)}h`;
+            
+            li.appendChild(badge);
+            hoursEl.append(li);
+          }
+        });
+        
+        // Totale ore giornaliere - SEMPRE BLU
+        if (dailyTotalHours > 0) {
+          const li = document.createElement('div');
+          li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
+          li.textContent = 'Totale';
+          
+          const badge = document.createElement('span');
+          badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(dailyTotalHours, true, true)}`; // Il terzo parametro indica che è un totale
+          badge.textContent = `${dailyTotalHours.toFixed(1)}h`;
+          
+          li.appendChild(badge);
+          hoursEl.append(li);
+        } else if (hoursEl.innerHTML === '') {
+          hoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
+        }
+        
+        // Aggiorna ore settimanali
+        weeklyHoursEl.innerHTML = '';
+        let weeklyTotalHours = 0;
+        
+        cavalli.forEach(h => {
+          const hours = getHoursWorked(h, monday, sunday);
+          if (hours > 0) {
+            weeklyTotalHours += hours;
+            const li = document.createElement('div');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.textContent = h;
+            
+            // Aggiunto: Indicatore di disponibilità
+            if (!cavalliDisponibilita[h]) {
+              const badge = document.createElement('span');
+              badge.className = 'badge bg-danger me-2';
+              badge.textContent = 'Non disponibile';
+              li.appendChild(badge);
+            }
+            
+            const badge = document.createElement('span');
+            badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours, false)}`;
+            badge.textContent = `${hours.toFixed(1)}h`;
+            
+            li.appendChild(badge);
+            weeklyHoursEl.append(li);
+          }
+        });
+        
+        // Totale ore settimanali - SEMPRE BLU
+        if (weeklyTotalHours > 0) {
+          const li = document.createElement('div');
+          li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
+          li.textContent = 'Totale';
+          
+          const badge = document.createElement('span');
+          badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(weeklyTotalHours, false, true)}`; // Il terzo parametro indica che è un totale
+          badge.textContent = `${weeklyTotalHours.toFixed(1)}h`;
+          
+          li.appendChild(badge);
+          weeklyHoursEl.append(li);
+        } else if (weeklyHoursEl.innerHTML === '') {
+          weeklyHoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
+        }
+        
+        // Aggiorna eventi giornalieri
+        updateEventsList(date, null, true, dailyListEl);
+        
+        // Aggiorna eventi settimanali
+        updateEventsList(monday, sunday, false, weeklyListEl);
+      }
+
+      // Aggiorna lista eventi
+      function updateEventsList(start, end, isDaily, container) {
+        container.innerHTML = '';
+        
+        // Filtra eventi
+        const events = calendar.getEvents().filter(ev => {
+          const evStart = new Date(ev.start);
+          const evDate = evStart.toISOString().slice(0, 10);
+          
+          if (isDaily) {
+            // Solo eventi del giorno selezionato
+            return evDate === start;
+          } else {
+            // Solo eventi nella settimana selezionata
+            return evStart >= start && evStart <= end;
+          }
+        }).sort((a, b) => a.start - b.start);
+        
+        if (events.length === 0) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.textContent = 'Nessun evento programmato';
+          container.append(li);
+          return;
+        }
+        
+        events.forEach(ev => {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          
+          const timeStr = `${new Date(ev.start).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})} - ${new Date(ev.end).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})}`;
+          
+          const dateSpan = document.createElement('span');
+          dateSpan.className = 'badge text-bg-secondary me-2';
+          
+          // Mostra data solo negli eventi settimanali
+          if (!isDaily) {
+            dateSpan.textContent = new Date(ev.start).toLocaleDateString('it', {weekday: 'short', day: 'numeric'});
+            li.append(dateSpan);
+          }
+          
+          const typeSpan = document.createElement('span');
+          typeSpan.className = 'badge me-2';
+          typeSpan.style.backgroundColor = activityColors[ev.extendedProps.type];
+          typeSpan.textContent = ev.extendedProps.type;
+          
+          const timeSpan = document.createElement('span');
+          timeSpan.className = 'me-2';
+          timeSpan.textContent = timeStr;
+          
+          const horsesSpan = document.createElement('span');
+          horsesSpan.className = 'fw-bold';
+          
+          // Aggiungi indicatori di disponibilità per i cavalli
+          const horses = ev.extendedProps.horses;
+          if (horses.length) {
+            horses.forEach((h, idx) => {
+              const horseSpan = document.createElement('span');
+              horseSpan.textContent = h;
+              
+              // Aggiungi classe in base alla disponibilità
+              if (!cavalliDisponibilita[h]) {
+                horseSpan.className = 'text-danger';
+              }
+              
+              // Aggiungi virgola se non è l'ultimo cavallo
+              if (idx < horses.length - 1) {
+                horseSpan.textContent += ', ';
+              }
+              
+              horsesSpan.appendChild(horseSpan);
+            });
+          } else {
+            horsesSpan.textContent = 'Nessun cavallo';
+          }
+          
+          li.append(typeSpan, timeSpan, horsesSpan);
+          
+          if (ev.extendedProps.notes) {
+            const notesEl = document.createElement('div');
+            notesEl.className = 'note-text mt-1';
+            notesEl.textContent = ev.extendedProps.notes;
+            li.append(notesEl);
+          }
+          
+          const btnShowEvent = document.createElement('button');
+          btnShowEvent.className = 'btn btn-sm btn-outline-primary mt-2';
+          btnShowEvent.textContent = 'Visualizza';
+          btnShowEvent.onclick = () => openForm(ev, ev.start, ev.end);
+          li.append(btnShowEvent);
+          
+          container.append(li);
+        });
+      }
+
+      // Gestione colori basati sul numero di ore
+      function getHoursColorClass(hours, isDaily = true, isTotal = false) {
+        // Se è un totale, ritorna sempre classe per totale (blu)
+        if (isTotal) {
+          return 'total-hours';
+        }
+        
+        if (isDaily) {
+          // Logica per le ore giornaliere
+          if (hours <= 3) return 'hours-low';
+          if (hours <= 5) return 'hours-medium';
+          return 'hours-high';
+        } else {
+          // Logica per le ore settimanali
+          if (hours <= 18) return 'hours-low';
+          if (hours <= 30) return 'hours-medium';
+          return 'hours-high';
+        }
+      }
+
+      // Carica i dati iniziali e configura gli aggiornamenti in tempo reale
+      loadData();
+    }
   });
 </script>
 
 </body>
 </html>
+
