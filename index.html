@@ -1789,7 +1789,7 @@
         horsesSpan.className = 'fw-bold';
         
         // Aggiungi indicatori di disponibilità per i cavalli
-        const horses = ev.extendedProps.horses;
+        const horses = ev.extendedProps.horses || [];
         if (horses.length) {
           horses.forEach((h, idx) => {
             const horseSpan = document.createElement('span');
