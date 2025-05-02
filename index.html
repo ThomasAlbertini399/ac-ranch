@@ -823,16 +823,39 @@
       }
       
       function saveEvents() {
-        const arr = calendar.getEvents().map(e=>({
-          id: e.id,
-          title: e.title,
-          start: e.start.toISOString(),
-          end:   e.end.toISOString(),
-          extendedProps: e.extendedProps,
-          backgroundColor: e.backgroundColor
-        }));
-        dbRef.child('events').set(arr);
+  try {
+    const arr = calendar.getEvents().map(e => {
+      // Assicurati che extendedProps e horses esistano
+      const extendedProps = e.extendedProps || {};
+      if (!extendedProps.horses) {
+        extendedProps.horses = [];
       }
+      
+      return {
+        id: e.id,
+        title: e.title,
+        start: e.start.toISOString(),
+        end: e.end.toISOString(),
+        extendedProps: extendedProps,
+        backgroundColor: e.backgroundColor
+      };
+    });
+    
+    console.log('Salvataggio eventi:', arr);
+    
+    dbRef.child('events').set(arr)
+      .then(() => {
+        console.log('Eventi salvati con successo!');
+      })
+      .catch((error) => {
+        console.error('Errore durante il salvataggio degli eventi:', error);
+        alert('Errore durante il salvataggio: ' + error.message);
+      });
+  } catch (error) {
+    console.error('Errore durante la preparazione degli eventi:', error);
+    alert('Errore durante la preparazione degli eventi: ' + error.message);
+  }
+}
       
       // Carica dati da Firebase
       function loadData() {
