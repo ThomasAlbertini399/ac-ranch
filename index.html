@@ -727,7 +727,13 @@
           const e = new Date(s.getTime() + 3600000);
           openForm(null, s, e);
         },
-        eventClick: info => openForm(info.event, info.event.start, info.event.end),
+        eventClick: info => {
+  // Assicurati che l'evento abbia la proprietà horses, altrimenti inizializzala
+  if (!info.event.extendedProps.horses) {
+    info.event.setExtendedProp('horses', []);
+  }
+  openForm(info.event, info.event.start, info.event.end);
+},
         eventDrop: ()=>{ saveEvents(); updateAll(); },
         eventResize: ()=>{ saveEvents(); updateAll(); },
         eventDidMount: info => {
@@ -1241,11 +1247,13 @@
           endEl.value = formatDateTimeLocal(ev.end);
           notesEl.value = ev?.extendedProps.notes || '';
           
-          // Seleziona i cavalli dell'evento esistente
-          ev.extendedProps.horses.forEach(h => {
-            const o = selectEl.querySelector(`option[value="${h}"]`);
-            if(o) o.selected = true;
-          });
+          // Seleziona i cavalli dell'evento esistente (se esistono)
+if (ev.extendedProps.horses && Array.isArray(ev.extendedProps.horses)) {
+  ev.extendedProps.horses.forEach(h => {
+    const o = selectEl.querySelector(`option[value="${h}"]`);
+    if(o) o.selected = true;
+  });
+}
         }
         
         // Quando l'orario di inizio cambia, aggiorniamo automaticamente l'orario di fine
