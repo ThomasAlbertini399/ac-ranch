@@ -537,10 +537,6 @@
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const database = firebase.database();
-
-// Attiva persistenza offline per migliorare l'affidabilità
-database.setPersistence(firebase.database.Persistence.SESSION)
-  .catch(e => console.error('Errore attivazione persistenza:', e));
   
   document.addEventListener('DOMContentLoaded', () => {
     // Elementi UI per il login
