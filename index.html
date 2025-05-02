@@ -1305,7 +1305,8 @@ if (ev.extendedProps.horses && Array.isArray(ev.extendedProps.horses)) {
           const isOverlapping = (s < evEnd && ed > evStart);
           
           // Verifica se ci sono cavalli in comune
-          const hasCommonHorses = ev.extendedProps.horses.some(h => hs.includes(h));
+const evHorses = ev.extendedProps.horses || [];
+const hasCommonHorses = evHorses.some(h => hs.includes(h));
           
           return isOverlapping && hasCommonHorses;
         });
