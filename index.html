@@ -2,6 +2,7 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>AC Ranch - Gestione Cavalli</title>
 
@@ -533,9 +534,13 @@
   };
   
   // Inizializza Firebase
-  firebase.initializeApp(firebaseConfig);
-  const auth = firebase.auth();
-  const database = firebase.database();
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const database = firebase.database();
+
+// Attiva persistenza offline per migliorare l'affidabilità
+database.setPersistence(firebase.database.Persistence.SESSION)
+  .catch(e => console.error('Errore attivazione persistenza:', e));
   
   document.addEventListener('DOMContentLoaded', () => {
     // Elementi UI per il login
@@ -829,73 +834,99 @@
       }
       
       // Carica dati da Firebase
-      function loadData() {
-        setLoading(true);
-        
-        dbRef.once('value')
-          .then(snapshot => {
-            const data = snapshot.val() || {};
-            
-            // Carica tutti i dati o imposta i valori predefiniti
-            cavalli = data.cavalli || ["Angel","Celine","Dior","John","Nina","Pioggia","Revoltoso","Wapi","Zia"];
-            
-            // MODIFICATO: Converti il vecchio formato delle note (stringa) al nuovo formato (array di oggetti)
-            cavalliNotes = data.cavalliNotes || {};
-            // Conversione vecchio formato -> nuovo formato
-            for (const horseName in cavalliNotes) {
-              if (typeof cavalliNotes[horseName] === 'string') {
-                // Se è una stringa, convertiamo in array con un singolo oggetto
-                if (cavalliNotes[horseName].trim()) {
-                  cavalliNotes[horseName] = [{
-                    text: cavalliNotes[horseName],
-                    date: new Date().toISOString(),
-                    id: Date.now().toString()
-                  }];
-                } else {
-                  // Se è vuoto, inizializziamo come array vuoto
-                  cavalliNotes[horseName] = [];
-                }
-              } else if (!Array.isArray(cavalliNotes[horseName])) {
-                // Se non è un array e non è una stringa, inizializziamo come array vuoto
-                cavalliNotes[horseName] = [];
-              }
-            }
-            
-            // Inizializza array vuoti per i cavalli che non hanno note
-            cavalli.forEach(h => {
-              if (!cavalliNotes[h]) {
-                cavalliNotes[h] = [];
-              }
-            });
-            
-            noteDaGestire = data.noteDaGestire || {};
-            cavalliDisponibilita = data.cavalliDisponibilita || {};
-            cavalliFerratura = data.cavalliFerratura || {}; // NUOVO: Carica date ferratura
-            
-            // Inizializza disponibilità per i cavalli che non ne hanno
-            cavalli.forEach(h => {
-              if (cavalliDisponibilita[h] === undefined) {
-                cavalliDisponibilita[h] = true; // true = disponibile
-              }
-            });
-            
-            // Carica gli eventi nel calendario
-            calendar.removeAllEvents();
-            if (data.events && Array.isArray(data.events)) {
-              data.events.forEach(ev => calendar.addEvent(ev));
-            }
-            
-            // Aggiorna l'interfaccia
-            renderHorsesUI();
-            updateAll();
-            setLoading(false);
-          })
-          .catch(error => {
-            console.error('Errore caricamento dati:', error);
-            setLoading(false);
-            alert('Errore durante il caricamento dei dati. Riprova più tardi.');
-          });
+function loadData(retryCount = 0) {
+  const maxRetries = 3;
+  setLoading(true);
+  
+  // Crea un timer per il timeout
+  const timeoutId = setTimeout(() => {
+    console.error('Timeout durante il caricamento dei dati');
+    if (retryCount < maxRetries) {
+      console.log(`Tentativo ${retryCount + 1}/${maxRetries} fallito per timeout, riprovo...`);
+      loadData(retryCount + 1);
+    } else {
+      setLoading(false);
+      alert(`Errore: timeout durante il caricamento dei dati. Verifica la tua connessione e riprova.`);
+    }
+  }, 15000); // 15 secondi di timeout
+  
+  dbRef.once('value')
+    .then(snapshot => {
+      // Annulla il timer di timeout
+      clearTimeout(timeoutId);
+      
+      const data = snapshot.val() || {};
+      
+      // Carica tutti i dati o imposta i valori predefiniti
+      cavalli = data.cavalli || ["Angel","Celine","Dior","John","Nina","Pioggia","Revoltoso","Wapi","Zia"];
+      
+      // MODIFICATO: Converti il vecchio formato delle note (stringa) al nuovo formato (array di oggetti)
+      cavalliNotes = data.cavalliNotes || {};
+      // Conversione vecchio formato -> nuovo formato
+      for (const horseName in cavalliNotes) {
+        if (typeof cavalliNotes[horseName] === 'string') {
+          // Se è una stringa, convertiamo in array con un singolo oggetto
+          if (cavalliNotes[horseName].trim()) {
+            cavalliNotes[horseName] = [{
+              text: cavalliNotes[horseName],
+              date: new Date().toISOString(),
+              id: Date.now().toString()
+            }];
+          } else {
+            // Se è vuoto, inizializziamo come array vuoto
+            cavalliNotes[horseName] = [];
+          }
+        } else if (!Array.isArray(cavalliNotes[horseName])) {
+          // Se non è un array e non è una stringa, inizializziamo come array vuoto
+          cavalliNotes[horseName] = [];
+        }
       }
+      
+      // Inizializza array vuoti per i cavalli che non hanno note
+      cavalli.forEach(h => {
+        if (!cavalliNotes[h]) {
+          cavalliNotes[h] = [];
+        }
+      });
+      
+      noteDaGestire = data.noteDaGestire || {};
+      cavalliDisponibilita = data.cavalliDisponibilita || {};
+      cavalliFerratura = data.cavalliFerratura || {}; // NUOVO: Carica date ferratura
+      
+      // Inizializza disponibilità per i cavalli che non ne hanno
+      cavalli.forEach(h => {
+        if (cavalliDisponibilita[h] === undefined) {
+          cavalliDisponibilita[h] = true; // true = disponibile
+        }
+      });
+      
+      // Carica gli eventi nel calendario
+      calendar.removeAllEvents();
+      if (data.events && Array.isArray(data.events)) {
+        data.events.forEach(ev => calendar.addEvent(ev));
+      }
+      
+      // Aggiorna l'interfaccia
+      renderHorsesUI();
+      updateAll();
+      setLoading(false);
+    })
+    .catch(error => {
+      // Annulla il timer di timeout
+      clearTimeout(timeoutId);
+      
+      console.error('Errore caricamento dati:', error, 'UA:', navigator.userAgent, 'Retry:', retryCount);
+      
+      // Riprova automaticamente fino a maxRetries volte
+      if (retryCount < maxRetries) {
+        console.log(`Tentativo ${retryCount + 1}/${maxRetries} fallito, riprovo...`);
+        setTimeout(() => loadData(retryCount + 1), 2000);
+      } else {
+        setLoading(false);
+        alert(`Errore durante il caricamento dei dati (${error.code || error.message || 'Sconosciuto'}). Prova a ricaricare la pagina o controllare la connessione.`);
+      }
+    });
+}
       
       // Quando i dati cambiano in Firebase, aggiorna l'app
       dbRef.on('value', snapshot => {
