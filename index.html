@@ -223,6 +223,55 @@
       margin-left: auto;
     }
     
+    /* NUOVO: Stile per il divisore di giorni negli eventi settimanali */
+    .day-divider {
+      background-color: #e9ecef;
+      padding: 5px 10px;
+      font-weight: 600;
+      margin-top: 10px;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    
+    /* NUOVO: Stile per le informazioni di ferratura */
+    .shoeing-info {
+      margin: 15px 0;
+      padding: 10px;
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      background-color: #f8f9fa;
+    }
+    
+    /* NUOVO: Modifica note multiple */
+    .notes-list {
+      max-height: 200px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+    
+    .note-item {
+      padding: 8px;
+      margin-bottom: 5px;
+      border-left: 3px solid #0d6efd;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      position: relative;
+    }
+    
+    .note-date {
+      font-size: 0.75rem;
+      color: #6c757d;
+      margin-bottom: 3px;
+    }
+    
+    .delete-note-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      font-size: 0.75rem;
+      padding: 2px 5px;
+    }
+    
     @media (max-width: 576px) {
       .fc .fc-col-header-cell-cushion { 
         font-size: 0.85rem;
@@ -403,11 +452,19 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <!-- NUOVO: Sezione per aggiungere note multiple -->
         <div class="mb-3">
-          <label class="form-label">Note sul cavallo</label>
+          <label class="form-label">Aggiungi nota sul cavallo</label>
           <textarea id="horse-notes" class="form-control mb-2" rows="3"></textarea>
-          <button id="save-horse-notes" class="btn btn-sm btn-primary" type="button">Salva note</button>
+          <button id="save-horse-notes" class="btn btn-sm btn-primary" type="button">Aggiungi nota</button>
         </div>
+        
+        <!-- NUOVO: Lista delle note del cavallo -->
+        <div class="mb-3">
+          <h6>Note del cavallo:</h6>
+          <div id="horse-notes-list" class="notes-list"></div>
+        </div>
+        
         <div class="mb-3">
           <div id="availability-container" class="d-grid gap-2">
             <button id="toggle-availability" class="btn btn-danger" type="button">
@@ -415,6 +472,17 @@
             </button>
           </div>
         </div>
+        
+        <!-- NUOVO: Informazioni ferratura -->
+        <div class="mb-3 shoeing-info">
+          <h6>Ultima ferratura:</h6>
+          <div class="d-flex align-items-center">
+            <span class="me-2">Data:</span>
+            <input type="date" id="shoeing-date" class="form-control">
+            <button id="save-shoeing-date" class="btn btn-sm btn-primary ms-2">Salva</button>
+          </div>
+        </div>
+        
         <h6>Eventi del cavallo:</h6>
         <ul id="profile-events" class="list-group"></ul>
       </div>
@@ -561,9 +629,10 @@
       
       // Dati iniziali
       let cavalli = [];
-      let cavalliNotes = {};
-      let noteDaGestire = {};
-      let cavalliDisponibilita = {};
+      let cavalliNotes = {};         // MODIFICATO: Ora conterrà array di note con data
+      let noteDaGestire = {};        // Invariato: Indica quali note sono da gestire
+      let cavalliDisponibilita = {}; // Invariato: Stato disponibilità
+      let cavalliFerratura = {};     // NUOVO: Date di ferratura per cavallo
       
       const activities     = ["passeggiata","lezione","ferratura","altro"];
       const workActivities = ["passeggiata","lezione"];
@@ -586,8 +655,11 @@
       const newHorseInput      = document.getElementById('new-horse-name');
       const addHorseBtn        = document.getElementById('add-horse-btn');
       const newEventBtn        = document.getElementById('new-event-button');
-      const horseNotesEl       = document.getElementById('horse-notes');
-      const saveHorseNotesBtn  = document.getElementById('save-horse-notes');
+      const horseNotesEl       = document.getElementById('horse-notes');        // Modificato: ora per aggiungere una singola nota
+      const horseNotesListEl   = document.getElementById('horse-notes-list');   // NUOVO: Lista delle note del cavallo
+      const saveHorseNotesBtn  = document.getElementById('save-horse-notes');   // Modificato: ora per aggiungere una nota
+      const shoeingDateEl      = document.getElementById('shoeing-date');       // NUOVO: Data ferratura
+      const saveShoeingDateBtn = document.getElementById('save-shoeing-date');  // NUOVO: Pulsante salva data ferratura
       const confirmDeleteHorseBtn = document.getElementById('confirm-delete-horse');
       const deleteHorseBtn     = document.getElementById('delete-horse-btn');
       const unavailableHorsesWarning = document.getElementById('unavailable-horses-warning');
@@ -710,12 +782,23 @@
         openForm(null, nextHour, endHour);
       });
 
+      // NUOVO: Salva data ferratura
+      saveShoeingDateBtn.addEventListener('click', function() {
+        const date = shoeingDateEl.value;
+        if (currentHorse) {
+          cavalliFerratura[currentHorse] = date;
+          saveHorseFerratura();
+          alert('Data ferratura salvata!');
+        }
+      });
+
       // Firebase helpers
       function saveHorses() {
         dbRef.child('cavalli').set(cavalli);
         renderHorsesUI();
       }
       
+      // MODIFICATO: Salva note cavalli (ora è un array di note con data)
       function saveHorseNotes() {
         dbRef.child('cavalliNotes').set(cavalliNotes);
       }
@@ -726,6 +809,11 @@
       
       function saveHorseAvailability() {
         dbRef.child('cavalliDisponibilita').set(cavalliDisponibilita);
+      }
+      
+      // NUOVO: Salva date ferratura
+      function saveHorseFerratura() {
+        dbRef.child('cavalliFerratura').set(cavalliFerratura);
       }
       
       function saveEvents() {
@@ -750,9 +838,39 @@
             
             // Carica tutti i dati o imposta i valori predefiniti
             cavalli = data.cavalli || ["Angel","Celine","Dior","John","Nina","Pioggia","Revoltoso","Wapi","Zia"];
+            
+            // MODIFICATO: Converti il vecchio formato delle note (stringa) al nuovo formato (array di oggetti)
             cavalliNotes = data.cavalliNotes || {};
+            // Conversione vecchio formato -> nuovo formato
+            for (const horseName in cavalliNotes) {
+              if (typeof cavalliNotes[horseName] === 'string') {
+                // Se è una stringa, convertiamo in array con un singolo oggetto
+                if (cavalliNotes[horseName].trim()) {
+                  cavalliNotes[horseName] = [{
+                    text: cavalliNotes[horseName],
+                    date: new Date().toISOString(),
+                    id: Date.now().toString()
+                  }];
+                } else {
+                  // Se è vuoto, inizializziamo come array vuoto
+                  cavalliNotes[horseName] = [];
+                }
+              } else if (!Array.isArray(cavalliNotes[horseName])) {
+                // Se non è un array e non è una stringa, inizializziamo come array vuoto
+                cavalliNotes[horseName] = [];
+              }
+            }
+            
+            // Inizializza array vuoti per i cavalli che non hanno note
+            cavalli.forEach(h => {
+              if (!cavalliNotes[h]) {
+                cavalliNotes[h] = [];
+              }
+            });
+            
             noteDaGestire = data.noteDaGestire || {};
             cavalliDisponibilita = data.cavalliDisponibilita || {};
+            cavalliFerratura = data.cavalliFerratura || {}; // NUOVO: Carica date ferratura
             
             // Inizializza disponibilità per i cavalli che non ne hanno
             cavalli.forEach(h => {
@@ -789,10 +907,12 @@
         const newNotes = JSON.stringify(data.cavalliNotes || {});
         const newNoteDaGestire = JSON.stringify(data.noteDaGestire || {});
         const newDisponibilita = JSON.stringify(data.cavalliDisponibilita || {});
+        const newFerratura = JSON.stringify(data.cavalliFerratura || {}); // NUOVO: Confronta date ferratura
         const currentCavalli = JSON.stringify(cavalli);
         const currentNotes = JSON.stringify(cavalliNotes);
         const currentNoteDaGestire = JSON.stringify(noteDaGestire);
         const currentDisponibilita = JSON.stringify(cavalliDisponibilita);
+        const currentFerratura = JSON.stringify(cavalliFerratura); // NUOVO: Confronta date ferratura
         
         // Verifica se gli eventi sono cambiati
         let eventsChanged = false;
@@ -807,6 +927,7 @@
             newNotes !== currentNotes ||
             newNoteDaGestire !== currentNoteDaGestire ||
             newDisponibilita !== currentDisponibilita ||
+            newFerratura !== currentFerratura || // NUOVO: Confronta date ferratura
             eventsChanged) {
           
           // Ricarica solo se non stiamo già caricando
@@ -879,77 +1000,100 @@
         renderNotesDashboard();
       }
 
-      // Render bacheca note
+      // MODIFICATO: Render bacheca note
       function renderNotesDashboard() {
         notesDashboard.innerHTML = '';
         
         let hasNotes = false;
         
-        // Controlliamo sia le note dei cavalli che le note da gestire
+        // Controlliamo le note di tutti i cavalli
         for (const horseName of cavalli) {
-          const horseNote = cavalliNotes[horseName];
-          if (horseNote && horseNote.trim()) {
+          const horseNotes = cavalliNotes[horseName] || [];
+          
+          // Verifichiamo se questo cavallo ha note
+          if (horseNotes.length > 0) {
             hasNotes = true;
             
-            // Verifichiamo se questa nota è già marcata come "da gestire"
-            const needsManagement = noteDaGestire[horseName] === true;
-            
-            const noteCard = document.createElement('div');
-            noteCard.className = 'note-card' + (needsManagement ? ' border-danger' : '');
-            
-            const horseNameEl = document.createElement('div');
-            horseNameEl.className = 'horse-name';
-            horseNameEl.textContent = horseName;
-            
-            // Aggiungi indicatore di disponibilità
-            if (!cavalliDisponibilita[horseName]) {
-              const availabilitySpan = document.createElement('span');
-              availabilitySpan.className = 'badge bg-danger ms-2';
-              availabilitySpan.textContent = 'Non disponibile';
-              horseNameEl.appendChild(availabilitySpan);
-            }
-            
-            const noteContent = document.createElement('div');
-            noteContent.className = 'note-content';
-            noteContent.textContent = horseNote;
-            
-            const actions = document.createElement('div');
-            actions.className = 'note-actions';
-            
-            const viewBtn = document.createElement('button');
-            viewBtn.className = 'btn btn-sm btn-outline-primary';
-            viewBtn.textContent = 'Visualizza profilo';
-            viewBtn.onclick = () => openProfile(horseName);
-            
-            const manageBtn = document.createElement('button');
-            manageBtn.className = 'btn btn-sm ' + (needsManagement ? 'btn-success' : 'btn-outline-warning');
-            manageBtn.textContent = needsManagement ? 'Completata' : 'Segna come da gestire';
-            manageBtn.onclick = () => {
-              // Toggle lo stato "da gestire"
-              if (needsManagement) {
-                delete noteDaGestire[horseName];
-              } else {
-                noteDaGestire[horseName] = true;
+            // Aggiungiamo ciascuna nota separatamente
+            horseNotes.forEach(note => {
+              // Verifichiamo se questa nota è marcata come "da gestire"
+              const noteId = note.id || Date.now().toString();
+              const needsManagement = noteDaGestire[noteId] === true;
+              
+              const noteCard = document.createElement('div');
+              noteCard.className = 'note-card' + (needsManagement ? ' border-danger' : '');
+              
+              const horseNameEl = document.createElement('div');
+              horseNameEl.className = 'horse-name';
+              horseNameEl.textContent = horseName;
+              
+              // Aggiungi indicatore di disponibilità
+              if (!cavalliDisponibilita[horseName]) {
+                const availabilitySpan = document.createElement('span');
+                availabilitySpan.className = 'badge bg-danger ms-2';
+                availabilitySpan.textContent = 'Non disponibile';
+                horseNameEl.appendChild(availabilitySpan);
               }
-              saveNotesToManage();
-              renderNotesDashboard();
-            };
-            
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'btn btn-sm btn-outline-danger';
-            removeBtn.textContent = 'Rimuovi nota';
-            removeBtn.onclick = () => {
-              // Rimuove la nota sia dalla lista generale che da quelle da gestire
-              cavalliNotes[horseName] = '';
-              delete noteDaGestire[horseName];
-              saveHorseNotes();
-              saveNotesToManage();
-              renderNotesDashboard();
-            };
-            
-            actions.append(viewBtn, manageBtn, removeBtn);
-            noteCard.append(horseNameEl, noteContent, actions);
-            notesDashboard.append(noteCard);
+              
+              // Aggiungi data della nota
+              const dateEl = document.createElement('small');
+              dateEl.className = 'text-muted ms-2';
+              if (note.date) {
+                const noteDate = new Date(note.date);
+                dateEl.textContent = noteDate.toLocaleDateString('it') + ' ' + 
+                                    noteDate.toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'});
+              } else {
+                dateEl.textContent = 'Data non disponibile';
+              }
+              horseNameEl.appendChild(dateEl);
+              
+              const noteContent = document.createElement('div');
+              noteContent.className = 'note-content';
+              noteContent.textContent = note.text;
+              
+              const actions = document.createElement('div');
+              actions.className = 'note-actions';
+              
+              const viewBtn = document.createElement('button');
+              viewBtn.className = 'btn btn-sm btn-outline-primary';
+              viewBtn.textContent = 'Visualizza profilo';
+              viewBtn.onclick = () => openProfile(horseName);
+              
+              const manageBtn = document.createElement('button');
+              manageBtn.className = 'btn btn-sm ' + (needsManagement ? 'btn-success' : 'btn-outline-warning');
+              manageBtn.textContent = needsManagement ? 'Completata' : 'Segna come da gestire';
+              manageBtn.onclick = () => {
+                // Toggle lo stato "da gestire"
+                if (needsManagement) {
+                  delete noteDaGestire[noteId];
+                } else {
+                  noteDaGestire[noteId] = true;
+                }
+                saveNotesToManage();
+                renderNotesDashboard();
+              };
+              
+              const removeBtn = document.createElement('button');
+              removeBtn.className = 'btn btn-sm btn-outline-danger';
+              removeBtn.textContent = 'Rimuovi nota';
+              removeBtn.onclick = () => {
+                // Rimuove la nota
+                cavalliNotes[horseName] = cavalliNotes[horseName].filter(n => n.id !== noteId);
+                
+                // Se la nota era marcata come "da gestire", rimuovi anche quella
+                if (noteDaGestire[noteId]) {
+                  delete noteDaGestire[noteId];
+                  saveNotesToManage();
+                }
+                
+                saveHorseNotes();
+                renderNotesDashboard();
+              };
+              
+              actions.append(viewBtn, manageBtn, removeBtn);
+              noteCard.append(horseNameEl, noteContent, actions);
+              notesDashboard.append(noteCard);
+            });
           }
         }
         
@@ -972,6 +1116,10 @@
         // Imposta disponibilità predefinita per nuovo cavallo
         cavalliDisponibilita[name] = true;
         saveHorseAvailability();
+        
+        // Inizializza array note vuoto per il nuovo cavallo
+        cavalliNotes[name] = [];
+        saveHorseNotes();
         
         saveHorses(); 
         newHorseInput.value='';
@@ -1027,12 +1175,20 @@
             ev.setProp('title', t + (arr.length?` (${arr.join(',')})`:``));
           }
         });
+        
         delete cavalliNotes[h]; 
-        delete noteDaGestire[h];
+        delete cavalliFerratura[h]; // NUOVO: Rimuovi anche data ferratura
+        
+        // Rimuovi tutte le note da gestire di questo cavallo
+        for (const noteId in noteDaGestire) {
+          delete noteDaGestire[noteId];
+        }
+        
         delete cavalliDisponibilita[h]; // Rimuovi anche disponibilità
         saveHorseNotes();
         saveNotesToManage();
         saveHorseAvailability();
+        saveHorseFerratura(); // NUOVO: Salva anche date ferratura
         saveHorses(); saveEvents(); updateAll();
         deleteHorseModal.hide();
         profileModal.hide(); // Chiude anche il modale del profilo
@@ -1193,11 +1349,19 @@
         }
       };
 
-      // Apri profilo cavallo
+      // MODIFICATO: Apri profilo cavallo
       function openProfile(h) {
         currentHorse = h;
         profileTitle.textContent = `Profilo di ${h}`;
-        horseNotesEl.value = cavalliNotes[h] || '';
+        
+        // Reset e pulizia campo note
+        horseNotesEl.value = '';
+        
+        // Renderizza lista note del cavallo
+        renderHorseNotesList(h);
+        
+        // Imposta data ferratura (se esistente)
+        shoeingDateEl.value = cavalliFerratura[h] || '';
         
         // Aggiorna pulsante disponibilità
         updateAvailabilityButton();
@@ -1266,20 +1430,114 @@
         profileModal.show();
       }
 
-      // Salva note cavallo
-      saveHorseNotesBtn.onclick = () => {
-        const notes = horseNotesEl.value.trim();
-        cavalliNotes[currentHorse] = notes;
+      // NUOVO: Renderizza lista note del cavallo
+      function renderHorseNotesList(horseName) {
+        horseNotesListEl.innerHTML = '';
         
-        // Se la nota è vuota, rimuoviamo anche dallo stato "da gestire"
-        if (!notes && noteDaGestire[currentHorse]) {
-          delete noteDaGestire[currentHorse];
-          saveNotesToManage();
+        const notes = cavalliNotes[horseName] || [];
+        
+        if (notes.length === 0) {
+          const emptyMessage = document.createElement('div');
+          emptyMessage.className = 'text-muted text-center py-2';
+          emptyMessage.textContent = 'Nessuna nota disponibile';
+          horseNotesListEl.append(emptyMessage);
+          return;
         }
         
+        // Ordina note per data (più recenti prima)
+        const sortedNotes = [...notes].sort((a, b) => {
+          return new Date(b.date) - new Date(a.date);
+        });
+        
+        // Aggiungi ciascuna nota
+        sortedNotes.forEach(note => {
+          const noteItem = document.createElement('div');
+          noteItem.className = 'note-item';
+          
+          // Aggiungi data della nota
+          const dateEl = document.createElement('div');
+          dateEl.className = 'note-date';
+          if (note.date) {
+            const noteDate = new Date(note.date);
+            dateEl.textContent = noteDate.toLocaleDateString('it') + ' ' + 
+                                noteDate.toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'});
+          } else {
+            dateEl.textContent = 'Data non disponibile';
+          }
+          
+          // Pulsante elimina nota
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'btn btn-sm btn-outline-danger delete-note-btn';
+          deleteBtn.innerHTML = '&times;';
+          deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            // Rimuovi nota
+            cavalliNotes[horseName] = cavalliNotes[horseName].filter(n => n.id !== note.id);
+            
+            // Se la nota era marcata come "da gestire", rimuovi anche quella
+            if (noteDaGestire[note.id]) {
+              delete noteDaGestire[note.id];
+              saveNotesToManage();
+            }
+            
+            saveHorseNotes();
+            renderHorseNotesList(horseName);
+            renderNotesDashboard();
+          };
+          
+          // Contenuto della nota
+          const contentEl = document.createElement('div');
+          contentEl.className = 'note-content';
+          contentEl.textContent = note.text;
+          
+          // Aggiungi indicatore "da gestire" se necessario
+          if (noteDaGestire[note.id]) {
+            const badgeEl = document.createElement('span');
+            badgeEl.className = 'badge bg-danger ms-2';
+            badgeEl.textContent = 'Da gestire';
+            dateEl.appendChild(badgeEl);
+          }
+          
+          noteItem.append(dateEl, deleteBtn, contentEl);
+          horseNotesListEl.append(noteItem);
+        });
+      }
+
+      // MODIFICATO: Salva nota cavallo (ora aggiunge una nuova nota)
+      saveHorseNotesBtn.onclick = () => {
+        const noteText = horseNotesEl.value.trim();
+        if (!noteText) return;
+        
+        if (!currentHorse) return;
+        
+        // Crea nuova nota
+        const newNote = {
+          id: Date.now().toString(),
+          text: noteText,
+          date: new Date().toISOString()
+        };
+        
+        // Verifica se l'array esiste già
+        if (!cavalliNotes[currentHorse]) {
+          cavalliNotes[currentHorse] = [];
+        }
+        
+        // Aggiungi nuova nota
+        cavalliNotes[currentHorse].push(newNote);
+        
+        // Aggiungi per default come nota da gestire
+        noteDaGestire[newNote.id] = true;
+        
+        // Salva
         saveHorseNotes();
+        saveNotesToManage();
+        
+        // Pulisci campo input e aggiorna UI
+        horseNotesEl.value = '';
+        renderHorseNotesList(currentHorse);
         renderNotesDashboard();
-        alert('Note salvate!');
+        
+        alert('Nota aggiunta!');
       };
 
       // Imposta data per oggi di default
@@ -1350,7 +1608,7 @@
             li.className = 'list-group-item d-flex justify-content-between align-items-center';
             li.textContent = h;
             
-            // Aggiunto: Indicatore di disponibilità
+            // Aggiungi indicatore di disponibilità
             if (!cavalliDisponibilita[h]) {
               const badge = document.createElement('span');
               badge.className = 'badge bg-danger me-2';
@@ -1395,7 +1653,7 @@
             li.className = 'list-group-item d-flex justify-content-between align-items-center';
             li.textContent = h;
             
-            // Aggiunto: Indicatore di disponibilità
+            // Aggiungi indicatore di disponibilità
             if (!cavalliDisponibilita[h]) {
               const badge = document.createElement('span');
               badge.className = 'badge bg-danger me-2';
@@ -1435,12 +1693,12 @@
         updateEventsList(monday, sunday, false, weeklyListEl);
       }
 
-      // Aggiorna lista eventi
+      // MODIFICATO: Aggiorna lista eventi con divisori per giorni negli eventi settimanali
       function updateEventsList(start, end, isDaily, container) {
         container.innerHTML = '';
         
         // Filtra eventi
-        const events = calendar.getEvents().filter(ev => {
+        let events = calendar.getEvents().filter(ev => {
           const evStart = new Date(ev.start);
           const evDate = evStart.toISOString().slice(0, 10);
           
@@ -1461,73 +1719,114 @@
           return;
         }
         
-        events.forEach(ev => {
-          const li = document.createElement('li');
-          li.className = 'list-group-item';
+        // Per gli eventi settimanali, organizza per giorno
+        if (!isDaily) {
+          // Raggruppa eventi per giorno
+          const eventsByDay = {};
           
-          const timeStr = `${new Date(ev.start).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})} - ${new Date(ev.end).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})}`;
+          events.forEach(ev => {
+            const evDate = new Date(ev.start).toISOString().slice(0, 10);
+            if (!eventsByDay[evDate]) {
+              eventsByDay[evDate] = [];
+            }
+            eventsByDay[evDate].push(ev);
+          });
           
-          const dateSpan = document.createElement('span');
-          dateSpan.className = 'badge text-bg-secondary me-2';
+          // Crea divisori per ogni giorno
+          const sortedDates = Object.keys(eventsByDay).sort();
           
-          // Mostra data solo negli eventi settimanali
-          if (!isDaily) {
-            dateSpan.textContent = new Date(ev.start).toLocaleDateString('it', {weekday: 'short', day: 'numeric'});
-            li.append(dateSpan);
-          }
-          
-          const typeSpan = document.createElement('span');
-          typeSpan.className = 'badge me-2';
-          typeSpan.style.backgroundColor = activityColors[ev.extendedProps.type];
-          typeSpan.textContent = ev.extendedProps.type;
-          
-          const timeSpan = document.createElement('span');
-          timeSpan.className = 'me-2';
-          timeSpan.textContent = timeStr;
-          
-          const horsesSpan = document.createElement('span');
-          horsesSpan.className = 'fw-bold';
-          
-          // Aggiungi indicatori di disponibilità per i cavalli
-          const horses = ev.extendedProps.horses;
-          if (horses.length) {
-            horses.forEach((h, idx) => {
-              const horseSpan = document.createElement('span');
-              horseSpan.textContent = h;
-              
-              // Aggiungi classe in base alla disponibilità
-              if (!cavalliDisponibilita[h]) {
-                horseSpan.className = 'text-danger';
-              }
-              
-              // Aggiungi virgola se non è l'ultimo cavallo
-              if (idx < horses.length - 1) {
-                horseSpan.textContent += ', ';
-              }
-              
-              horsesSpan.appendChild(horseSpan);
+          sortedDates.forEach(date => {
+            // Aggiungi divisore per il giorno
+            const dateObj = new Date(date);
+            const dayName = dateObj.toLocaleDateString('it', {weekday: 'long'});
+            const dayNumber = dateObj.getDate();
+            const monthName = dateObj.toLocaleDateString('it', {month: 'long'});
+            
+            const divider = document.createElement('div');
+            divider.className = 'day-divider';
+            divider.textContent = `${dayName} ${dayNumber} ${monthName}`;
+            container.append(divider);
+            
+            // Aggiungi eventi del giorno
+            eventsByDay[date].forEach(ev => {
+              addEventToList(ev, container, false);
             });
-          } else {
-            horsesSpan.textContent = 'Nessun cavallo';
-          }
-          
-          li.append(typeSpan, timeSpan, horsesSpan);
-          
-          if (ev.extendedProps.notes) {
-            const notesEl = document.createElement('div');
-            notesEl.className = 'note-text mt-1';
-            notesEl.textContent = ev.extendedProps.notes;
-            li.append(notesEl);
-          }
-          
-          const btnShowEvent = document.createElement('button');
-          btnShowEvent.className = 'btn btn-sm btn-outline-primary mt-2';
-          btnShowEvent.textContent = 'Visualizza';
-          btnShowEvent.onclick = () => openForm(ev, ev.start, ev.end);
-          li.append(btnShowEvent);
-          
-          container.append(li);
-        });
+          });
+        } else {
+          // Per eventi giornalieri, semplicemente lista tutti gli eventi
+          events.forEach(ev => {
+            addEventToList(ev, container, true);
+          });
+        }
+      }
+      
+      // Helper per aggiungere un evento alla lista
+      function addEventToList(ev, container, isDaily) {
+        const li = document.createElement('li');
+        li.className = 'list-group-item';
+        
+        const timeStr = `${new Date(ev.start).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})} - ${new Date(ev.end).toLocaleTimeString('it', {hour: '2-digit', minute: '2-digit'})}`;
+        
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'badge text-bg-secondary me-2';
+        
+        // Mostra data solo negli eventi settimanali
+        if (!isDaily) {
+          dateSpan.textContent = new Date(ev.start).toLocaleDateString('it', {weekday: 'short', day: 'numeric'});
+          li.append(dateSpan);
+        }
+        
+        const typeSpan = document.createElement('span');
+        typeSpan.className = 'badge me-2';
+        typeSpan.style.backgroundColor = activityColors[ev.extendedProps.type];
+        typeSpan.textContent = ev.extendedProps.type;
+        
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'me-2';
+        timeSpan.textContent = timeStr;
+        
+        const horsesSpan = document.createElement('span');
+        horsesSpan.className = 'fw-bold';
+        
+        // Aggiungi indicatori di disponibilità per i cavalli
+        const horses = ev.extendedProps.horses;
+        if (horses.length) {
+          horses.forEach((h, idx) => {
+            const horseSpan = document.createElement('span');
+            horseSpan.textContent = h;
+            
+            // Aggiungi classe in base alla disponibilità
+            if (!cavalliDisponibilita[h]) {
+              horseSpan.className = 'text-danger';
+            }
+            
+            // Aggiungi virgola se non è l'ultimo cavallo
+            if (idx < horses.length - 1) {
+              horseSpan.textContent += ', ';
+            }
+            
+            horsesSpan.appendChild(horseSpan);
+          });
+        } else {
+          horsesSpan.textContent = 'Nessun cavallo';
+        }
+        
+        li.append(typeSpan, timeSpan, horsesSpan);
+        
+        if (ev.extendedProps.notes) {
+          const notesEl = document.createElement('div');
+          notesEl.className = 'note-text mt-1';
+          notesEl.textContent = ev.extendedProps.notes;
+          li.append(notesEl);
+        }
+        
+        const btnShowEvent = document.createElement('button');
+        btnShowEvent.className = 'btn btn-sm btn-outline-primary mt-2';
+        btnShowEvent.textContent = 'Visualizza';
+        btnShowEvent.onclick = () => openForm(ev, ev.start, ev.end);
+        li.append(btnShowEvent);
+        
+        container.append(li);
       }
 
       // Gestione colori basati sul numero di ore
@@ -1554,8 +1853,6 @@
       loadData();
     }
   });
-</script>
-
+  </script>
 </body>
 </html>
-
