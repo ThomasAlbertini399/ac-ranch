@@ -1578,36 +1578,34 @@ const hasCommonHorses = evHorses.some(h => hs.includes(h));
 
       // Utility per calcolare ore di cavallo
       function getHoursWorked(h, start, end, dailyOnly = false) {
-  let total = 0;
-  
-  calendar.getEvents().forEach(ev => {
-    // Controlla se il cavallo è presente
-    if (!ev.extendedProps.horses?.includes(h)) return;
-    
-    // Controlla se l'attività è di lavoro
-    if (!workActivities.includes(ev.extendedProps.type)) return;
-    
-    // Controlla periodo (giorno o settimana)
-    const evStart = new Date(ev.start);
-    const evDate = evStart.toISOString().slice(0, 10);
-    
-    if (dailyOnly) {
-      // Solo eventi del giorno selezionato
-      if (evDate !== start) return;
-    } else {
-      // Solo eventi nella settimana selezionata
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-      if (evStart < startDate || evStart > endDate) return;
-    }
-    
-    // Calcola ore
-    const hours = (ev.end - ev.start) / (1000 * 60 * 60);
-    total += hours;
-  });
-  
-  return total;
-}
+        let total = 0;
+        
+        calendar.getEvents().forEach(ev => {
+          // Controlla se il cavallo è presente
+          if (!ev.extendedProps.horses?.includes(h)) return;
+          
+          // Controlla se l'attività è di lavoro
+          if (!workActivities.includes(ev.extendedProps.type)) return;
+          
+          // Controlla periodo (giorno o settimana)
+          const evStart = new Date(ev.start);
+          const evDate = evStart.toISOString().slice(0, 10);
+          
+          if (dailyOnly) {
+            // Solo eventi del giorno selezionato
+            if (evDate !== start) return;
+          } else {
+            // Solo eventi nella settimana selezionata
+            if (evStart < start || evStart > end) return;
+          }
+          
+          // Calcola ore
+          const hours = (ev.end - ev.start) / (1000 * 60 * 60);
+          total += hours;
+        });
+        
+        return total;
+      }
 
       // Aggiorna tutti i riepiloghi
       function updateAll() {
@@ -1728,73 +1726,71 @@ const hasCommonHorses = evHorses.some(h => hs.includes(h));
       }
 
       // MODIFICATO: Aggiorna lista eventi con divisori per giorni negli eventi settimanali
-function updateEventsList(start, end, isDaily, container) {
-  container.innerHTML = '';
-  
-  // Filtra eventi
-  let events = calendar.getEvents().filter(ev => {
-    const evStart = new Date(ev.start);
-    const evDate = evStart.toISOString().slice(0, 10);
-    
-    if (isDaily) {
-      // Solo eventi del giorno selezionato
-      return evDate === start;
-    } else {
-      // Solo eventi nella settimana selezionata
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-      return evStart >= startDate && evStart <= endDate;
-    }
-  }).sort((a, b) => a.start - b.start);
-  
-  if (events.length === 0) {
-    const li = document.createElement('li');
-    li.className = 'list-group-item';
-    li.textContent = 'Nessun evento programmato';
-    container.append(li);
-    return;
-  }
-  
-  // Per gli eventi settimanali, organizza per giorno
-  if (!isDaily) {
-    // Raggruppa eventi per giorno
-    const eventsByDay = {};
-    
-    events.forEach(ev => {
-      const evDate = new Date(ev.start).toISOString().slice(0, 10);
-      if (!eventsByDay[evDate]) {
-        eventsByDay[evDate] = [];
+      function updateEventsList(start, end, isDaily, container) {
+        container.innerHTML = '';
+        
+        // Filtra eventi
+        let events = calendar.getEvents().filter(ev => {
+          const evStart = new Date(ev.start);
+          const evDate = evStart.toISOString().slice(0, 10);
+          
+          if (isDaily) {
+            // Solo eventi del giorno selezionato
+            return evDate === start;
+          } else {
+            // Solo eventi nella settimana selezionata
+            return evStart >= start && evStart <= end;
+          }
+        }).sort((a, b) => a.start - b.start);
+        
+        if (events.length === 0) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.textContent = 'Nessun evento programmato';
+          container.append(li);
+          return;
+        }
+        
+        // Per gli eventi settimanali, organizza per giorno
+        if (!isDaily) {
+          // Raggruppa eventi per giorno
+          const eventsByDay = {};
+          
+          events.forEach(ev => {
+            const evDate = new Date(ev.start).toISOString().slice(0, 10);
+            if (!eventsByDay[evDate]) {
+              eventsByDay[evDate] = [];
+            }
+            eventsByDay[evDate].push(ev);
+          });
+          
+          // Crea divisori per ogni giorno
+          const sortedDates = Object.keys(eventsByDay).sort();
+          
+          sortedDates.forEach(date => {
+            // Aggiungi divisore per il giorno
+            const dateObj = new Date(date);
+            const dayName = dateObj.toLocaleDateString('it', {weekday: 'long'});
+            const dayNumber = dateObj.getDate();
+            const monthName = dateObj.toLocaleDateString('it', {month: 'long'});
+            
+            const divider = document.createElement('div');
+            divider.className = 'day-divider';
+            divider.textContent = `${dayName} ${dayNumber} ${monthName}`;
+            container.append(divider);
+            
+            // Aggiungi eventi del giorno
+            eventsByDay[date].forEach(ev => {
+              addEventToList(ev, container, false);
+            });
+          });
+        } else {
+          // Per eventi giornalieri, semplicemente lista tutti gli eventi
+          events.forEach(ev => {
+            addEventToList(ev, container, true);
+          });
+        }
       }
-      eventsByDay[evDate].push(ev);
-    });
-    
-    // Crea divisori per ogni giorno
-    const sortedDates = Object.keys(eventsByDay).sort();
-    
-    sortedDates.forEach(date => {
-      // Aggiungi divisore per il giorno
-      const dateObj = new Date(date);
-      const dayName = dateObj.toLocaleDateString('it', {weekday: 'long'});
-      const dayNumber = dateObj.getDate();
-      const monthName = dateObj.toLocaleDateString('it', {month: 'long'});
-      
-      const divider = document.createElement('div');
-      divider.className = 'day-divider';
-      divider.textContent = `${dayName} ${dayNumber} ${monthName}`;
-      container.append(divider);
-      
-      // Aggiungi eventi del giorno
-      eventsByDay[date].forEach(ev => {
-        addEventToList(ev, container, false);
-      });
-    });
-  } else {
-    // Per eventi giornalieri, semplicemente lista tutti gli eventi
-    events.forEach(ev => {
-      addEventToList(ev, container, true);
-    });
-  }
-}
       
       // Helper per aggiungere un evento alla lista
       function addEventToList(ev, container, isDaily) {
