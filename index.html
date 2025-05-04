@@ -1577,220 +1577,243 @@ const hasCommonHorses = evHorses.some(h => hs.includes(h));
       dateInput.oninput = updateAll;
 
       // Utility per calcolare ore di cavallo
-      function getHoursWorked(h, start, end, dailyOnly = false) {
-        let total = 0;
-        
-        calendar.getEvents().forEach(ev => {
-          // Controlla se il cavallo è presente
-          if (!ev.extendedProps.horses?.includes(h)) return;
-          
-          // Controlla se l'attività è di lavoro
-          if (!workActivities.includes(ev.extendedProps.type)) return;
-          
-          // Controlla periodo (giorno o settimana)
-          const evStart = new Date(ev.start);
-          const evDate = evStart.toISOString().slice(0, 10);
-          
-          if (dailyOnly) {
-            // Solo eventi del giorno selezionato
-            if (evDate !== start) return;
-          } else {
-            // Solo eventi nella settimana selezionata
-            if (evStart < start || evStart > end) return;
-          }
-          
-          // Calcola ore
-          const hours = (ev.end - ev.start) / (1000 * 60 * 60);
-          total += hours;
-        });
-        
-        return total;
-      }
+function getHoursWorked(h, start, end, dailyOnly = false) {
+  let total = 0;
+  
+  calendar.getEvents().forEach(ev => {
+    // Controlla se il cavallo è presente
+    if (!ev.extendedProps.horses?.includes(h)) return;
+    
+    // Controlla se l'attività è di lavoro
+    if (!workActivities.includes(ev.extendedProps.type)) return;
+    
+    // Controlla periodo (giorno o settimana)
+    const evStart = new Date(ev.start);
+    
+    if (dailyOnly) {
+      // Solo eventi del giorno selezionato
+      const evDate = evStart.toISOString().slice(0, 10);
+      if (evDate !== start) return;
+    } else {
+      // Solo eventi nella settimana selezionata
+      // Assicuriamoci che start e end siano Date objects
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      
+      // Imposta l'ora di inizio a 00:00:00
+      startDate.setHours(0, 0, 0, 0);
+      
+      // Imposta l'ora di fine a 23:59:59
+      endDate.setHours(23, 59, 59, 999);
+      
+      if (evStart < startDate || evStart > endDate) return;
+    }
+    
+    // Calcola ore
+    const hours = (ev.end - ev.start) / (1000 * 60 * 60);
+    total += hours;
+  });
+  
+  return total;
+}
 
       // Aggiorna tutti i riepiloghi
-      function updateAll() {
-        const date = dateInput.value;
-        
-        // Calcola inizio e fine settimana
-        const d = new Date(date);
-        const day = d.getDay() || 7; // 0 = domenica, quindi diventa 7
-        
-        // Trova lunedì della settimana corrente
-        const monday = new Date(d);
-        monday.setDate(d.getDate() - day + 1);
-        
-        // Trova domenica della settimana corrente
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        
-        // Formatta per visualizzazione
-        const mondayStr = monday.toLocaleDateString('it');
-        const sundayStr = sunday.toLocaleDateString('it');
-        weekRangeEl.textContent = `(${mondayStr} - ${sundayStr})`;
-        
-        // Aggiorna ore di lavoro giornaliere
-        hoursEl.innerHTML = '';
-        let dailyTotalHours = 0;
-        
-        cavalli.forEach(h => {
-          const hours = getHoursWorked(h, date, null, true);
-          if (hours > 0) {
-            dailyTotalHours += hours;
-            const li = document.createElement('div');
-            li.className = 'list-group-item d-flex justify-content-between align-items-center';
-            li.textContent = h;
-            
-            // Aggiungi indicatore di disponibilità
-            if (!cavalliDisponibilita[h]) {
-              const badge = document.createElement('span');
-              badge.className = 'badge bg-danger me-2';
-              badge.textContent = 'Non disponibile';
-              li.appendChild(badge);
-            }
-            
-            const badge = document.createElement('span');
-            badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours)}`;
-            badge.textContent = `${hours.toFixed(1)}h`;
-            
-            li.appendChild(badge);
-            hoursEl.append(li);
-          }
-        });
-        
-        // Totale ore giornaliere - SEMPRE BLU
-        if (dailyTotalHours > 0) {
-          const li = document.createElement('div');
-          li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
-          li.textContent = 'Totale';
-          
-          const badge = document.createElement('span');
-          badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(dailyTotalHours, true, true)}`; // Il terzo parametro indica che è un totale
-          badge.textContent = `${dailyTotalHours.toFixed(1)}h`;
-          
-          li.appendChild(badge);
-          hoursEl.append(li);
-        } else if (hoursEl.innerHTML === '') {
-          hoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
-        }
-        
-        // Aggiorna ore settimanali
-        weeklyHoursEl.innerHTML = '';
-        let weeklyTotalHours = 0;
-        
-        cavalli.forEach(h => {
-          const hours = getHoursWorked(h, monday, sunday);
-          if (hours > 0) {
-            weeklyTotalHours += hours;
-            const li = document.createElement('div');
-            li.className = 'list-group-item d-flex justify-content-between align-items-center';
-            li.textContent = h;
-            
-            // Aggiungi indicatore di disponibilità
-            if (!cavalliDisponibilita[h]) {
-              const badge = document.createElement('span');
-              badge.className = 'badge bg-danger me-2';
-              badge.textContent = 'Non disponibile';
-              li.appendChild(badge);
-            }
-            
-            const badge = document.createElement('span');
-            badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours, false)}`;
-            badge.textContent = `${hours.toFixed(1)}h`;
-            
-            li.appendChild(badge);
-            weeklyHoursEl.append(li);
-          }
-        });
-        
-        // Totale ore settimanali - SEMPRE BLU
-        if (weeklyTotalHours > 0) {
-          const li = document.createElement('div');
-          li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
-          li.textContent = 'Totale';
-          
-          const badge = document.createElement('span');
-          badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(weeklyTotalHours, false, true)}`; // Il terzo parametro indica che è un totale
-          badge.textContent = `${weeklyTotalHours.toFixed(1)}h`;
-          
-          li.appendChild(badge);
-          weeklyHoursEl.append(li);
-        } else if (weeklyHoursEl.innerHTML === '') {
-          weeklyHoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
-        }
-        
-        // Aggiorna eventi giornalieri
-        updateEventsList(date, null, true, dailyListEl);
-        
-        // Aggiorna eventi settimanali
-        updateEventsList(monday, sunday, false, weeklyListEl);
+function updateAll() {
+  const date = dateInput.value;
+  
+  // Calcola inizio e fine settimana
+  const d = new Date(date);
+  const day = d.getDay() || 7; // 0 = domenica, quindi diventa 7
+  
+  // Trova lunedì della settimana corrente
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - day + 1);
+  
+  // Trova domenica della settimana corrente
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  
+  // Formatta le date in ISO string per i confronti (YYYY-MM-DD)
+  const mondayISO = monday.toISOString().slice(0, 10);
+  const sundayISO = sunday.toISOString().slice(0, 10);
+  
+  // Formatta per visualizzazione
+  const mondayStr = monday.toLocaleDateString('it');
+  const sundayStr = sunday.toLocaleDateString('it');
+  weekRangeEl.textContent = `(${mondayStr} - ${sundayStr})`;
+  
+  // Aggiorna ore di lavoro giornaliere
+  hoursEl.innerHTML = '';
+  let dailyTotalHours = 0;
+  
+  cavalli.forEach(h => {
+    const hours = getHoursWorked(h, date, null, true);
+    if (hours > 0) {
+      dailyTotalHours += hours;
+      const li = document.createElement('div');
+      li.className = 'list-group-item d-flex justify-content-between align-items-center';
+      li.textContent = h;
+      
+      // Aggiungi indicatore di disponibilità
+      if (!cavalliDisponibilita[h]) {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-danger me-2';
+        badge.textContent = 'Non disponibile';
+        li.appendChild(badge);
       }
+      
+      const badge = document.createElement('span');
+      badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours)}`;
+      badge.textContent = `${hours.toFixed(1)}h`;
+      
+      li.appendChild(badge);
+      hoursEl.append(li);
+    }
+  });
+  
+  // Totale ore giornaliere - SEMPRE BLU
+  if (dailyTotalHours > 0) {
+    const li = document.createElement('div');
+    li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
+    li.textContent = 'Totale';
+    
+    const badge = document.createElement('span');
+    badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(dailyTotalHours, true, true)}`;
+    badge.textContent = `${dailyTotalHours.toFixed(1)}h`;
+    
+    li.appendChild(badge);
+    hoursEl.append(li);
+  } else if (hoursEl.innerHTML === '') {
+    hoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
+  }
+  
+  // Aggiorna ore settimanali
+  weeklyHoursEl.innerHTML = '';
+  let weeklyTotalHours = 0;
+  
+  cavalli.forEach(h => {
+    const hours = getHoursWorked(h, mondayISO, sundayISO, false);
+    if (hours > 0) {
+      weeklyTotalHours += hours;
+      const li = document.createElement('div');
+      li.className = 'list-group-item d-flex justify-content-between align-items-center';
+      li.textContent = h;
+      
+      // Aggiungi indicatore di disponibilità
+      if (!cavalliDisponibilita[h]) {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-danger me-2';
+        badge.textContent = 'Non disponibile';
+        li.appendChild(badge);
+      }
+      
+      const badge = document.createElement('span');
+      badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(hours, false)}`;
+      badge.textContent = `${hours.toFixed(1)}h`;
+      
+      li.appendChild(badge);
+      weeklyHoursEl.append(li);
+    }
+  });
+  
+  // Totale ore settimanali - SEMPRE BLU
+  if (weeklyTotalHours > 0) {
+    const li = document.createElement('div');
+    li.className = 'list-group-item d-flex justify-content-between align-items-center fw-bold';
+    li.textContent = 'Totale';
+    
+    const badge = document.createElement('span');
+    badge.className = `badge bg-primary rounded-pill ${getHoursColorClass(weeklyTotalHours, false, true)}`;
+    badge.textContent = `${weeklyTotalHours.toFixed(1)}h`;
+    
+    li.appendChild(badge);
+    weeklyHoursEl.append(li);
+  } else if (weeklyHoursEl.innerHTML === '') {
+    weeklyHoursEl.innerHTML = '<div class="list-group-item">Nessuna attività di lavoro</div>';
+  }
+  
+  // Aggiorna eventi giornalieri
+  updateEventsList(date, null, true, dailyListEl);
+  
+  // Aggiorna eventi settimanali
+  updateEventsList(mondayISO, sundayISO, false, weeklyListEl);
+}
 
       // MODIFICATO: Aggiorna lista eventi con divisori per giorni negli eventi settimanali
       function updateEventsList(start, end, isDaily, container) {
-        container.innerHTML = '';
-        
-        // Filtra eventi
-        let events = calendar.getEvents().filter(ev => {
-          const evStart = new Date(ev.start);
-          const evDate = evStart.toISOString().slice(0, 10);
-          
-          if (isDaily) {
-            // Solo eventi del giorno selezionato
-            return evDate === start;
-          } else {
-            // Solo eventi nella settimana selezionata
-            return evStart >= start && evStart <= end;
-          }
-        }).sort((a, b) => a.start - b.start);
-        
-        if (events.length === 0) {
-          const li = document.createElement('li');
-          li.className = 'list-group-item';
-          li.textContent = 'Nessun evento programmato';
-          container.append(li);
-          return;
-        }
-        
-        // Per gli eventi settimanali, organizza per giorno
-        if (!isDaily) {
-          // Raggruppa eventi per giorno
-          const eventsByDay = {};
-          
-          events.forEach(ev => {
-            const evDate = new Date(ev.start).toISOString().slice(0, 10);
-            if (!eventsByDay[evDate]) {
-              eventsByDay[evDate] = [];
-            }
-            eventsByDay[evDate].push(ev);
-          });
-          
-          // Crea divisori per ogni giorno
-          const sortedDates = Object.keys(eventsByDay).sort();
-          
-          sortedDates.forEach(date => {
-            // Aggiungi divisore per il giorno
-            const dateObj = new Date(date);
-            const dayName = dateObj.toLocaleDateString('it', {weekday: 'long'});
-            const dayNumber = dateObj.getDate();
-            const monthName = dateObj.toLocaleDateString('it', {month: 'long'});
-            
-            const divider = document.createElement('div');
-            divider.className = 'day-divider';
-            divider.textContent = `${dayName} ${dayNumber} ${monthName}`;
-            container.append(divider);
-            
-            // Aggiungi eventi del giorno
-            eventsByDay[date].forEach(ev => {
-              addEventToList(ev, container, false);
-            });
-          });
-        } else {
-          // Per eventi giornalieri, semplicemente lista tutti gli eventi
-          events.forEach(ev => {
-            addEventToList(ev, container, true);
-          });
-        }
+  container.innerHTML = '';
+  
+  // Filtra eventi
+  let events = calendar.getEvents().filter(ev => {
+    const evStart = new Date(ev.start);
+    
+    if (isDaily) {
+      // Solo eventi del giorno selezionato
+      const evDate = evStart.toISOString().slice(0, 10);
+      return evDate === start;
+    } else {
+      // Solo eventi nella settimana selezionata
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      
+      // Imposta l'ora di inizio a 00:00:00
+      startDate.setHours(0, 0, 0, 0);
+      
+      // Imposta l'ora di fine a 23:59:59
+      endDate.setHours(23, 59, 59, 999);
+      
+      return evStart >= startDate && evStart <= endDate;
+    }
+  }).sort((a, b) => a.start - b.start);
+  
+  if (events.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'list-group-item';
+    li.textContent = 'Nessun evento programmato';
+    container.append(li);
+    return;
+  }
+  
+  // Per gli eventi settimanali, organizza per giorno
+  if (!isDaily) {
+    // Raggruppa eventi per giorno
+    const eventsByDay = {};
+    
+    events.forEach(ev => {
+      const evDate = new Date(ev.start).toISOString().slice(0, 10);
+      if (!eventsByDay[evDate]) {
+        eventsByDay[evDate] = [];
       }
+      eventsByDay[evDate].push(ev);
+    });
+    
+    // Crea divisori per ogni giorno
+    const sortedDates = Object.keys(eventsByDay).sort();
+    
+    sortedDates.forEach(date => {
+      // Aggiungi divisore per il giorno
+      const dateObj = new Date(date);
+      const dayName = dateObj.toLocaleDateString('it', {weekday: 'long'});
+      const dayNumber = dateObj.getDate();
+      const monthName = dateObj.toLocaleDateString('it', {month: 'long'});
+      
+      const divider = document.createElement('div');
+      divider.className = 'day-divider';
+      divider.textContent = `${dayName} ${dayNumber} ${monthName}`;
+      container.append(divider);
+      
+      // Aggiungi eventi del giorno
+      eventsByDay[date].forEach(ev => {
+        addEventToList(ev, container, false);
+      });
+    });
+  } else {
+    // Per eventi giornalieri, semplicemente lista tutti gli eventi
+    events.forEach(ev => {
+      addEventToList(ev, container, true);
+    });
+  }
+}
       
       // Helper per aggiungere un evento alla lista
       function addEventToList(ev, container, isDaily) {
